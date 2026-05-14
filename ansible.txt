@@ -1,0 +1,1362 @@
+        ansible/
+        +-- MySQL/
+        ¦   +-- innodbcluster/
+        ¦   ¦   +-- APP/
+        ¦   ¦   ¦   +-- ENV/
+        ¦   ¦   ¦   ¦   +-- DC/
+        ¦   ¦   ¦   ¦   ¦   +-- inventory/
+        ¦   ¦   ¦   ¦   ¦   ¦   +-- vars/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦   +-- vars.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   +-- hosts/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦   +-- hosts.ini
+        ¦   ¦   ¦   ¦   ¦   +-- roles/
+        ¦   ¦   ¦   ¦   ¦   ¦   +-- mysql/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- tasks/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- install_dependencies.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- download_binaries.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- install_mysql.yml
+    ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- configure_group_replication.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- configure_cluster.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- templates/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- my.cnf.j2
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- mysql-service.j2
+        ¦   ¦   ¦   ¦   ¦   ¦   +-- maintenance/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- tasks/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +--mysql_physical_backup.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +--mysql_logical_backup.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- templates/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- env_setup.j2
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- Percona_Xtrabackup.j2
+        ¦   ¦   ¦   ¦   ¦   ¦   +-- monitor/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- tasks/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +--mysql_daemon_monitor.sh.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +--mysql_replication_monitor.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- templates/
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- mysqldmonitor.j2
+        ¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- mysqlreplication.sh.j2
+        ¦   ¦   ¦   ¦   ¦   +-- playbooks/
+        ¦   ¦   ¦   ¦   ¦   ¦   +-- main.yml
+        ¦   ¦   ¦   ¦   ¦   ¦   +-- validate_setup.yml
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+  export BASE_DIR="/ansible"
+  export DBMS="MySQL"
+  export SETUP_TYPE="innodbcluster"
+  export DBAPP="qeautomation"
+  export ENV="poc"
+  export DC="ec"
+  export WORK_FOLDER="${BASE_DIR}/${DBMS}/${SETUP_TYPE}/${DBAPP}/${ENV}/${DC}"
+  export INVENTORY_FOLDER="${WORK_FOLDER}/inventory"
+  export HOSTS_FOLDER="${INVENTORY_FOLDER}/hosts"
+  export VARS_FOLDER="${INVENTORY_FOLDER}/vars"
+  export PLAYBOOK_FOLDER="${WORK_FOLDER}/playbooks"
+  export VARS_FILE="vars.yml"
+  export HOSTS_FILE="hosts.ini"
+
+
+  mkdir -p {${BASE_DIR},${WORK_FOLDER},${INVENTORY_FOLDER},${HOSTS_FOLDER},${VARS_FOLDER},${PLAYBOOK_FOLDER},${WORK_FOLDER}/roles/mysql/tasks,${WORK_FOLDER}/roles/mysql
+/templates}
+
+  mkdir -p {${WORK_FOLDER}/roles/maintenance,${WORK_FOLDER}/roles/maintenance/tasks,${WORK_FOLDER}/roles/maintenance/templates}
+  mkdir -p {${WORK_FOLDER}/roles/monitor,${WORK_FOLDER}/roles/monitor/tasks,${WORK_FOLDER}/roles/monitor/templates}
+
+  touch ${VARS_FOLDER}/vars_config.yml
+
+
+cat > ${VARS_FOLDER}/vars_config.yml<<EOF
+---
+- mysql_version: mysql_version_value
+  mysql_download_url: mysql_download_url_value
+  perona_xtrabackup_download_url: perona_xtrabackup_download_url_value
+  percona_toolkit_download_url: percona_toolkit_download_url_value
+  proxysql_download_url: proxysql_download_url_value
+  mysql_shell_download_url: mysql_shell_download_url_value
+  mysql_port: mysql_port_value
+  mysql_groupreplication_port: mysql_groupreplication_port_value
+  mysql_report_port: mysql_port_value
+  mysql_app: mysql_app_value
+  mysql_env: mysql_env_value
+  mysql_dc: mysql_dc_value
+  mysql_directories_location: mysql_directories_location_value
+  mysql_datadir_location: mysql_datadir_location_value
+  mysql_logdir_location: mysql_logdir_location_value
+  mysql_tempdir_location: mysql_tempdir_location_value
+  mysql_binlogdir_location: mysql_binlogdir_location_value
+  mysql_relaylogdir_location: mysql_relaylogdir_location_value
+  mysql_conf_location: mysql_conf_location_value
+  mysql_ssl_location: mysql_ssl_location_value
+  mysql_max_allowed_packet: mysql_max_allowed_packet_value
+  mysql_super_user: mysql_super_user_value
+  mysql_super_password: mysql_super_password_value
+  mysql_cluster_admin_user: mysql_cluster_admin_user_value
+  mysql_cluster_admin_user_password: mysql_cluster_admin_user_password_value
+  mysql_socket: mysql_socket_value
+  mysql_max_connections: mysql_max_connections_value
+  mysql_basedir_location: mysql_basedir_location_value
+  percona_xtrabackup_basedir_location: percona_xtrabackup_basedir_location_value
+  percona_toolkit_basedir_location: percona_toolkit_basedir_location_value
+  mysql_shell_basedir_location: mysql_shell_basedir_location_value
+  proxysql_basedir_location: proxysql_basedir_location_value
+  mysql_pid_file: mysql_pid_file_value
+  mysql_lower_case_table_names: mysql_lower_case_table_names_value
+  mysql_max_user_connections: mysql_max_user_connections_value
+  mysql_sort_buffer_size: mysql_sort_buffer_size_value
+  mysql_general_log_file: mysql_general_log_file_value
+  mysql_innodb_data_home_dir: mysql_datadir_location_value
+  mysql_log_error: mysql_log_error_value
+  mysql_slow_query_log_file: mysql_slow_query_log_file_value
+  mysql_log_bin_index: mysql_log_bin_index_value
+  mysql_log_bin: mysql_log_bin_value
+  mysql_relay_log: mysql_relay_log_value
+  mysql_relay_log_index: mysql_relay_log_index_value
+  mysql_innodb_log_group_home_dir: mysql_innodb_log_group_home_dir_value
+  mysql_innodb_buffer_pool_size: mysql_innodb_buffer_pool_size_value
+  mysql_innodb_log_buffer_size: mysql_innodb_log_buffer_size_value
+  mysql_innodb_log_file_size: mysql_innodb_log_file_size_value
+  mysql_ssl_ca: mysql_ssl_ca_value
+  mysql_ssl_cert: mysql_ssl_cert_value
+  mysql_ssl_key: mysql_ssl_key_value
+  mysql_long_query_time: mysql_long_query_time_value
+  mysql_group_replication_group_name: mysql_group_replication_group_name_value
+EOF
+
+cat ${VARS_FOLDER}/vars_config.yml
+
+
+export mysql_version_value="8.0"
+export mysql_download_url_value="https://downloads.percona.com/downloads/Percona-Server-8.0/Percona-Server-8.0.42-33/binary/tarball/Percona-Server-8.0.42-33-Linux.x86_6
+4.glibc2.28.tar.gz"
+export perona_xtrabackup_download_url_value="https://downloads.percona.com/downloads/Percona-XtraBackup-8.0/Percona-XtraBackup-8.0.35-34/binary/tarball/percona-xtraback
+up-8.0.35-34-Linux-x86_64.glibc2.28.tar.gz"
+export percona_toolkit_download_url_value="https://downloads.percona.com/downloads/percona-toolkit/3.7.0-2/binary/tarball/percona-toolkit-3.7.0-2_x86_64.tar.gz"
+export mysql_shell_download_url_value="https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell-8.0.43-linux-glibc2.28-x86-64bit.tar.gz"
+export proxysql_download_url_value="https://downloads.percona.com/downloads/proxysql2/proxysql2-2.7.3/binary/tarball/proxysql-2.7.3-Linux-x86_64.glibc2.28.tar.gz"
+export mysql_port_value=3306
+export mysql_groupreplication_port_value=33106
+export mysql_group_replication_group_name_value=$(uuidgen)
+export mysql_app_value=${DBAPP}
+export mysql_env_value=${ENV}
+export mysql_dc_value=${DC}
+export mysql_directories_location_value="/dbdata/mysql/${mysql_app_value}/${mysql_env_value}"
+export mysql_basedir_location_value="${mysql_directories_location_value}/binaries/${SETUP_TYPE}-${mysql_version_value}"
+export percona_xtrabackup_basedir_location_value="${mysql_directories_location_value}/binaries/percona-xtrabackup"
+export percona_toolkit_basedir_location_value="${mysql_directories_location_value}/binaries/percona-toolkit"
+export mysql_shell_basedir_location_value="${mysql_directories_location_value}/binaries/mysql-shell"
+export proxysql_basedir_location_value="${mysql_directories_location_value}/binaries/proxysql"
+export mysql_conf_location_value="${mysql_directories_location_value}/conf"
+export mysql_datadir_location_value="${mysql_directories_location_value}/data"
+export mysql_logdir_location_value="${mysql_directories_location_value}/logs"
+export mysql_tempdir_location_value="${mysql_directories_location_value}/temp"
+export mysql_binlogdir_location_value="${mysql_directories_location_value}/binlogs"
+export mysql_relaylogdir_location_value="${mysql_directories_location_value}/relaylogs"
+export mysql_ssl_location_value="${mysql_directories_location_value}/ssl"
+export mysql_max_allowed_packet_value="256M"
+export mysql_super_user_value="root"
+export mysql_super_password_value="root12#$"
+export mysql_cluster_admin_user_value="dbadmin"
+export mysql_cluster_admin_user_password_value="dbadmin_Pa55word"
+export mysql_socket_value="${mysql_directories_location_value}/mysql.sock"
+export mysql_max_connections_value=1000
+export mysql_pid_file_value="${mysql_directories_location_value}/mysqld.pid"
+export mysql_lower_case_table_names_value=1
+export mysql_max_user_connections_value=800
+export mysql_sort_buffer_size_value="128M"
+export mysql_general_log_file_value="${mysql_logdir_location_value}/mysql-general.log"
+export mysql_log_error_value="${mysql_logdir_location_value}/mysql-error.log"
+export mysql_slow_query_log_file_value="${mysql_logdir_location_value}/mysql-slow.log"
+export mysql_log_bin_value="${mysql_binlogdir_location_value}/mysql-bin-changelog"
+export mysql_log_bin_index_value="${mysql_binlogdir_location_value}/mysql-bin-changelog.index"
+export mysql_relay_log_value="${mysql_relaylogdir_location_value}/mysql-relay.log"
+export mysql_relay_log_index_value="${mysql_relaylogdir_location_value}/mysql-relay.index"
+export mysql_innodb_log_group_home_dir_value="${mysql_logdir_location_value}"
+export mysql_innodb_buffer_pool_size_value="3G"
+export mysql_innodb_log_buffer_size_value="128M"
+export mysql_innodb_log_file_size_value="1G"
+export mysql_ssl_ca_value="${mysql_ssl_location_value}/ca.pem"
+export mysql_ssl_cert_value="${mysql_ssl_location_value}/server-cert.pem"
+export mysql_ssl_key_value="${mysql_ssl_location_value}/server-key.pem"
+export mysql_long_query_time_value=2
+
+
+
+cp ${VARS_FOLDER}/vars_config.yml ${VARS_FOLDER}/${VARS_FILE}
+
+cat ${VARS_FOLDER}/${VARS_FILE}
+
+diff ${VARS_FOLDER}/${VARS_FILE} ${VARS_FOLDER}/vars_config.yml
+
+
+
+
+sed -i "s|mysql_version_value|${mysql_version_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_download_url_value|${mysql_download_url_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|perona_xtrabackup_download_url_value|${perona_xtrabackup_download_url_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|percona_toolkit_download_url_value|${percona_toolkit_download_url_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_shell_download_url_value|${mysql_shell_download_url_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|proxysql_download_url_value|${proxysql_download_url_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_port_value|${mysql_port_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_groupreplication_port_value|${mysql_groupreplication_port_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_app_value|${mysql_app_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_conf_location_value|${mysql_conf_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_directories_location_value|${mysql_directories_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_logdir_location_value|${mysql_logdir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_tempdir_location_value|${mysql_tempdir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_binlogdir_location_value|${mysql_binlogdir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_relaylogdir_location_value|${mysql_relaylogdir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_basedir_location_value|${mysql_basedir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|percona_xtrabackup_basedir_location_value|${percona_xtrabackup_basedir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|percona_toolkit_basedir_location_value|${percona_toolkit_basedir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_shell_basedir_location_value|${mysql_shell_basedir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|proxysql_basedir_location_value|${proxysql_basedir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_env_value|${mysql_env_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_dc_value|${mysql_dc_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_datadir_location_value|${mysql_datadir_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_max_allowed_packet_value|${mysql_max_allowed_packet_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_super_user_value|${mysql_super_user_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_super_password_value|${mysql_super_password_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_cluster_admin_user_value|${mysql_cluster_admin_user_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_cluster_admin_user_password_value|${mysql_cluster_admin_user_password_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_socket_value|${mysql_socket_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_max_connections_value|${mysql_max_connections_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_pid_file_value|${mysql_pid_file_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_lower_case_table_names_value|${mysql_lower_case_table_names_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_max_user_connections_value|${mysql_max_user_connections_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_sort_buffer_size_value|${mysql_sort_buffer_size_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_general_log_file_value|${mysql_general_log_file_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_log_error_value|${mysql_log_error_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_slow_query_log_file_value|${mysql_slow_query_log_file_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_log_bin_index_value|${mysql_log_bin_index_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_log_bin_value|${mysql_log_bin_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_relay_log_value|${mysql_relay_log_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_relay_log_index_value|${mysql_relay_log_index_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_innodb_log_group_home_dir_value|${mysql_innodb_log_group_home_dir_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_innodb_buffer_pool_size_value|${mysql_innodb_buffer_pool_size_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_innodb_log_buffer_size_value|${mysql_innodb_log_buffer_size_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_innodb_log_file_size_value|${mysql_innodb_log_file_size_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_ssl_ca_value|${mysql_ssl_ca_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_ssl_cert_value|${mysql_ssl_cert_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_ssl_key_value|${mysql_ssl_key_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_long_query_time_value|${mysql_long_query_time_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_ssl_location_value|${mysql_ssl_location_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+sed -i "s|mysql_group_replication_group_name_value|${mysql_group_replication_group_name_value}|g" ${VARS_FOLDER}/${VARS_FILE}
+
+
+
+cat ${VARS_FOLDER}/${VARS_FILE}
+
+
+touch ${HOSTS_FOLDER}/hosts_conf.ini
+
+
+ls -lhtr ${HOSTS_FOLDER}
+
+cat > ${HOSTS_FOLDER}/hosts_conf.ini<<EOF
+[all:vars]
+ansible_user=ansible_user_value
+ansible_connection=ssh
+ansible_become_method=sudo
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+
+[dbservers]
+host1_ip_value ansible_user=ansible_user_value ansible_password="ansible_password_value" ansible_become=true ansible_become_method=sudo ansible_become_password="ansible
+_password_value"
+host2_ip_value ansible_user=ansible_user_value ansible_password="ansible_password_value" ansible_become=true ansible_become_method=sudo ansible_become_password="ansible
+_password_value"
+host3_ip_value ansible_user=ansible_user_value ansible_password="ansible_password_value" ansible_become=true ansible_become_method=sudo ansible_become_password="ansible
+_password_value"
+
+[primary]
+host1_ip_value
+
+[secondary]
+host2_ip_value
+host3_ip_value
+
+
+EOF
+
+cat ${HOSTS_FOLDER}/hosts_conf.ini
+
+
+
+cp ${HOSTS_FOLDER}/hosts_conf.ini ${HOSTS_FOLDER}/${HOSTS_FILE}
+
+diff ${HOSTS_FOLDER}/hosts_conf.ini ${HOSTS_FOLDER}/${HOSTS_FILE}
+
+export ansible_user_value=501901928
+export ansible_password_value=hyadlapalli_Pa55word
+export host1_ip_value="10.54.6.41"
+export host2_ip_value="10.54.6.42"
+export host3_ip_value="10.54.6.43"
+
+
+
+
+sed -i "s|ansible_user_value|${ansible_user_value}|g" ${HOSTS_FOLDER}/${HOSTS_FILE}
+sed -i "s|ansible_password_value|${ansible_password_value}|g" ${HOSTS_FOLDER}/${HOSTS_FILE}
+sed -i "s|host1_ip_value|${host1_ip_value}|g" ${HOSTS_FOLDER}/${HOSTS_FILE}
+sed -i "s|host2_ip_value|${host2_ip_value}|g" ${HOSTS_FOLDER}/${HOSTS_FILE}
+sed -i "s|host3_ip_value|${host3_ip_value}|g" ${HOSTS_FOLDER}/${HOSTS_FILE}
+
+
+
+cat ${HOSTS_FOLDER}/${HOSTS_FILE}
+
+ansible-inventory -i ${HOSTS_FOLDER}/${HOSTS_FILE} --list
+
+ansible -i ${HOSTS_FOLDER}/${HOSTS_FILE} --list-hosts dbservers
+ansible -i ${HOSTS_FOLDER}/${HOSTS_FILE} --list-hosts primary
+ansible -i ${HOSTS_FOLDER}/${HOSTS_FILE} --list-hosts secondary
+ansible -i ${HOSTS_FOLDER}/${HOSTS_FILE} --list-hosts all
+
+
+cat > ${PLAYBOOK_FOLDER}/play_vars.yml<<EOF
+---
+- name: Print Variables
+  hosts: all
+  become: true
+  gather_facts: false
+  vars_files:
+        - "${VARS_FOLDER}/${VARS_FILE}"
+  tasks:
+        - name: "Ansible | List A specific variable Value"
+          debug:
+                msg: |
+                  MySQL VERSION IS {{ mysql_version }}
+
+        - name: Print all variables
+          debug:
+                msg: |-
+                  {% for VAR in vars %}.
+                  {{ VAR }} : {{ lookup('vars', VAR) }}
+                  {% endfor %}
+EOF
+
+cat ${PLAYBOOK_FOLDER}/play_vars.yml
+
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/play_vars.yml
+
+ansible -i ${HOSTS_FOLDER}/${HOSTS_FILE} all -m ping
+
+1. Install Dependencies:
+
+cat > ${WORK_FOLDER}/roles/mysql/tasks/install_dependencies.yml<<EOF
+---
+- name: "Installing Dependencies"
+  hosts: dbservers
+  vars_files:
+        - "${VARS_FOLDER}/${VARS_FILE}"
+  become: true
+  tasks:
+        - name: "Download mongosh for Rocky Version 8"
+      get_url:
+        url=https://downloads.percona.com/downloads/percona-server-mongodb-7.0/percona-server-mongodb-7.0.8-5/binary/redhat/8/x86_64/percona-mongodb-mongosh-2.1.5.el8.x
+86_64.rpm
+        dest=/tmp
+      when: ansible_distribution in ['CentOS', 'Rocky', 'Fedora'] and ansible_distribution_version is version('8', '>=')
+
+        - name: "Installing mongosh for Rocky Version 8"
+      become: true
+      shell: |
+        dnf localinstall /tmp/percona-mongodb-mongosh-2.1.5.el8.x86_64.rpm  -y
+
+        - name: "Installing epel-release"
+          become: true
+          command: dnf -y install epel-release
+
+        - name: "Installing Dependencies"
+          become: true
+          dnf:
+                name: "{{ item }}"
+                state: present
+          loop:
+                - "openssl"
+                - "socat"
+                - "procps-ng"
+                - "chkconfig"
+                - "coreutils"
+                - "shadow-utils"
+        - "numactl"
+                - "qpress"
+                - "jq"
+                - "libaio"
+                - "rsync"
+        - "jq"
+        - "awscli"
+        - "epel-release"
+        - "@development"
+        - "openssl-devel"
+        - "python3"
+        - "python3-pip"
+        - "tar"
+        - "xinetd"
+
+        - name: "Creating mysql group"
+          become: true
+          group:
+                name: "mysql"
+                state: present
+
+        - name: "Creating mysql user"
+          become: true
+          user:
+                name: mysql
+                groups: mysql
+                shell: /sbin/nologin
+                create_home: no
+                append: yes
+                comment: "mysql nologin User"
+                state: present
+
+EOF
+
+cat ${WORK_FOLDER}/roles/mysql/tasks/install_dependencies.yml
+
+
+ 2. download_binaries.yml
+
+cat > ${WORK_FOLDER}/roles/mysql/tasks/download_binaries.yml<<EOF
+---
+- name: "Downloading  Percona MySQL Version {{ mysql_version }} Binaries"
+  hosts: dbservers
+  vars_files:
+        - "${VARS_FOLDER}/${VARS_FILE}"
+  become: true
+  tasks:
+        - name: "Creating necessary directories for downloading the binaries"
+          become: true
+          file:
+                path: "{{ item }}"
+                state: directory
+                owner: mysql
+                group: mysql
+                recurse: yes
+          loop:
+                - "{{ mysql_basedir_location }}"
+                - "{{ percona_xtrabackup_basedir_location }}"
+                - "{{ percona_toolkit_basedir_location }}"
+                - "{{ proxysql_basedir_location }}"
+        - "{{ mysql_shell_basedir_location }}"
+
+        - name: "Downloading the binary tarball from {{ mysql_download_url }} to {{ mysql_basedir_location }}"
+          become: true
+          get_url:
+                url: "{{ mysql_download_url }}"
+                dest: "{{ mysql_basedir_location }}/Percona-Server.tar.gz"
+
+        - name: "Extracting the source code"
+          become: true
+          shell: |
+                tar --strip-components=1 -xzf {{ mysql_basedir_location }}/Percona-Server.tar.gz -C {{ mysql_basedir_location }}
+          args:
+                creates: "{{ mysql_basedir_location }}/bin/mysqld"
+
+        - name: "Downloading the binary tarball from {{ perona_xtrabackup_download_url }} to {{ percona_xtrabackup_basedir_location }}"
+      become: true
+      get_url:
+        url: "{{ perona_xtrabackup_download_url }}"
+        dest: "{{ percona_xtrabackup_basedir_location }}/percona-xtrabackup.tar.gz"
+    - name: "Extracting the source code"
+      become: true
+      shell: |
+        tar --strip-components=1 -xzf {{ percona_xtrabackup_basedir_location }}/percona-xtrabackup.tar.gz -C {{ percona_xtrabackup_basedir_location }}
+      args:
+        creates: "{{ percona_xtrabackup_basedir_location }}/bin/xtrabackup"
+
+        - name: "Downloading the binary tarball from {{ percona_toolkit_download_url }} to {{ percona_toolkit_basedir_location }}"
+      become: true
+      get_url:
+        url: "{{ percona_toolkit_download_url }}"
+        dest: "{{ percona_toolkit_basedir_location }}/percona-toolkit.tar.gz"
+
+    - name: "Extracting the source code"
+      become: true
+      shell: |
+        tar --strip-components=1 -xzf {{ percona_toolkit_basedir_location }}/percona-toolkit.tar.gz -C {{ percona_toolkit_basedir_location }}
+      args:
+        creates: "{{ percona_toolkit_basedir_location }}/bin/pt-summary"
+
+        - name: "Downloading the binary tarball from {{ proxysql_download_url }} to {{ proxysql_basedir_location }}"
+      become: true
+      get_url:
+        url: "{{ proxysql_download_url }}"
+        dest: "{{ proxysql_basedir_location }}/proxysql.tar.gz"
+
+    - name: "Extracting the source code"
+      become: true
+      shell: |
+        tar --strip-components=1 -xzf {{ proxysql_basedir_location }}/proxysql.tar.gz -C {{ proxysql_basedir_location }}
+          args:
+                creates: "{{ proxysql_basedir_location }}/usr/bin/proxysql"
+
+        - name: "Downloading the binary tarball from {{ mysql_shell_download_url }} to {{ mysql_shell_basedir_location }}"
+      become: true
+      shell: |
+        cd {{ mysql_shell_basedir_location }}
+        wget -O mysqlshell.tar.gz https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell-8.0.43-linux-glibc2.28-x86-64bit.tar.gz
+
+    - name: "Extracting the source code"
+      become: true
+      shell: |
+        tar --strip-components=1 -xzf {{ mysql_shell_basedir_location }}/mysqlshell.tar.gz -C {{ mysql_shell_basedir_location }}
+      args:
+        creates: "{{ mysql_shell_basedir_location }}/bin/mysqlsh"
+
+EOF
+
+cat ${WORK_FOLDER}/roles/mysql/tasks/download_binaries.yml
+
+
+Templates:
+my.cnf.j2
+mysql-service.j2
+ssl certs
+
+export AWS_SECRET_ACCESS_KEY=$(mongosh "mongodb://reader:tFFXdVkLYi5Y8s@10.54.5.208:27017,10.54.5.209:27017,10.54.5.210:27017/admin?replicaSet=dbteam" --quiet --eval 'u
+se credentials_store' --eval 'EJSON.stringify(db.credentials.find( { "Application": { $regex: /^awsconsole/, $options: "i"} , "Env": { $regex: /^all/, $options: "i" } ,
+ "Account": { $regex: /^cnbc/, $options: "i" }} , {"_id": 0 , "user_access_metadata.metadata.value" : 1}).toArray())' | jq -r '.[]| .user_access_metadata[].metadata[].v
+alue')
+export AWS_ACCESS_KEY_ID=$(mongosh "mongodb://reader:tFFXdVkLYi5Y8s@10.54.5.208:27017,10.54.5.209:27017,10.54.5.210:27017/admin?replicaSet=dbteam" --quiet --eval 'use c
+redentials_store' --eval 'EJSON.stringify(db.credentials.find( { "Application": { $regex: /^awsconsole/, $options: "i"} , "Env": { $regex: /^all/, $options: "i" }, "Acc
+ount": { $regex: /^cnbc/, $options: "i" } } , {"_id": 0 , "user_access_metadata.metadata.key" : 1 }).toArray())' | jq -r '.[]| .user_access_metadata[].metadata[].key')
+
+aws s3 cp s3://cnbc-dbteam-binaries/MySQL_Binaries/MySQL8/pem/ ${WORK_FOLDER}/roles/mysql/templates/ --recursive --include="*.pem"
+
+
+cat > ${WORK_FOLDER}/roles/mysql/templates/my.cnf.j2<<EOF
+[mysql]
+default-character-set                    = utf8mb4
+auto-rehash                              = FALSE
+local-infile                             = 1
+max_allowed_packet                       = {{ mysql_max_allowed_packet }}
+
+[client]
+user                                     = {{ mysql_super_user }}
+password                                 = '{{ mysql_super_password }}'
+port                                     = {{ mysql_port }}
+socket                                   = {{ mysql_socket }}
+default-character-set                    = utf8mb4
+
+[mysqld]
+server_id                                = {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'].split('.')[-1] ~ mysql_port }}
+report_host                                                              = {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}
+report_port                                                              = {{ mysql_port }}
+default_authentication_plugin            = mysql_native_password
+default_password_lifetime                = 0
+default_storage_engine                   = InnoDB
+default_tmp_storage_engine               = InnoDB
+explicit_defaults_for_timestamp          = 1
+event_scheduler                          = 1
+skip-replica-start                       = 0
+port                                     = {{ mysql_port }}
+datadir                                  = {{ mysql_datadir_location }}
+socket                                   = {{ mysql_socket }}
+tmpdir                                   = {{ mysql_tempdir_location }}
+pid-file                                 = {{ mysql_pid_file }}
+max_allowed_packet                       = {{ mysql_max_allowed_packet }}
+max-connect-errors                       = 100000
+bind-address                             = 0.0.0.0
+lock_wait_timeout                        = 50
+log_bin_trust_function_creators          = 1
+lower_case_table_names                   = {{ mysql_lower_case_table_names }}
+connect_timeout                          = 10
+interactive_timeout                      = 28800
+low_priority_updates                     = 1
+max_user_connections                     = {{ mysql_max_user_connections }}
+max_connections                          = {{ mysql_max_connections }}
+performance_schema                       = 1
+wait_timeout                             = 600
+sysdate-is-now                           = 1
+basedir                                  = {{ mysql_basedir_location }}
+plugin_dir                                                       = {{ mysql_basedir_location }}/lib/plugin
+binlog_checksum                          = CRC32
+secure-file-priv                         = ''
+sort_buffer_size                         = {{ mysql_sort_buffer_size }}
+table_open_cache                                        = {{ mysql_table_open_cache | default(4096) }}
+table_definition_cache                                  = {{ mysql_table_definition_cache | default(4096) }}
+open_files_limit                                        = {{ mysql_open_files_limit | default(65535) }}
+tmp_table_size                                                  = {{ mysql_tmp_table_size | default('64M') }}
+max_heap_table_size                                             = {{ mysql_max_heap_table_size | default('64M') }}
+thread_cache_size                                               = {{ mysql_thread_cache_size | default(128) }}
+
+
+# log params
+log_slow_extra                           = 1
+long_query_time                          = {{ mysql_long_query_time }}
+slow_query_log                           = 1
+log_error_verbosity                      = 3
+log_queries_not_using_indexes            = 1
+log_slow_admin_statements                = 1
+general_log                              = 0
+general_log_file                         = {{ mysql_general_log_file }}
+innodb_checksum_algorithm                = CRC32
+innodb_data_home_dir                     = {{ mysql_innodb_data_home_dir }}
+internal_tmp_mem_storage_engine          = TempTable
+local_infile                             = 1
+log_error                                = {{ mysql_log_error }}
+log_output                               = FILE
+slow_query_log_file                      = {{ mysql_slow_query_log_file }}
+sql_mode                                 = STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+
+# Connection Params
+skip-external-locking                    = 1
+character-set-client-handshake           = 0
+character_set_filesystem                 = utf8mb4
+character_set_server                     = utf8mb4
+collation_server                         = utf8mb4_unicode_ci
+init_connect                             = 'SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci'
+skip-character-set-client-handshake      = 1
+
+
+# Replication params
+enforce_gtid_consistency                 = 1
+gtid_mode                                = ON
+binlog_format                            = ROW
+binlog_row_image                         = FULL
+binlog_row_metadata                      = FULL
+log_bin                                  = {{ mysql_log_bin }}
+log_bin_index                            = {{ mysql_log_bin_index }}
+relay_log                                = {{ mysql_relay_log }}
+relay_log_index                          = {{ mysql_relay_log_index }}
+relay_log_recovery                       = 1
+log_replica_updates                      = 1
+binlog_expire_logs_seconds               = 2592000
+max_binlog_size                          = 1024M
+sync_binlog                              = 1
+sync_relay_log_info                      = 1
+binlog_transaction_dependency_tracking   = WRITESET
+transaction_write_set_extraction         = XXHASH64
+replica_parallel_workers                 = 3
+replica_parallel_type                                    = LOGICAL_CLOCK
+replica_preserve_commit_order                    = ON
+
+
+# Group Replication Params
+plugin_load_add                                                 = "group_replication.so"
+group_replication_group_name                    = "{{ mysql_group_replication_group_name }}"
+group_replication_local_address                 = "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_groupreplication_port }}"
+group_replication_group_seeds                   = "{{ groups['dbservers'] | map('extract', hostvars, ['ansible_default_ipv4', 'address']) | map('regex_replace', '^(.*)$
+', '\\\1:' ~ mysql_groupreplication_port) | join(',') }}"
+group_replication_start_on_boot                 = OFF
+group_replication_exit_state_action             = ABORT_SERVER
+group_replication_ip_allowlist                  = AUTOMATIC
+group_replication_single_primary_mode   = ON
+
+group_replication_flow_control_mode             = QUOTA
+group_replication_flow_control_certifier_threshold = 25000
+group_replication_flow_control_applier_threshold = 25000
+group_replication_flow_control_min_quota = 300
+group_replication_flow_control_max_quota = 5000
+
+group_replication_recovery_use_ssl               = ON
+group_replication_autorejoin_tries               = 120
+group_replication_recovery_retry_count   = 12
+
+
+
+# Innodb Params
+innodb_file_per_table                    = 1
+innodb_lock_wait_timeout                 = 50
+innodb_print_all_deadlocks               = 1
+innodb_rollback_on_timeout               = 1
+innodb_status_output                     = 0
+innodb_status_output_locks               = 1
+transaction_isolation                    = READ-COMMITTED
+innodb_data_file_path                    = ibdata1:12M:autoextend
+innodb_log_group_home_dir                = {{ mysql_innodb_log_group_home_dir }}
+innodb_buffer_pool_instances             = 8
+innodb_log_files_in_group                = 2
+innodb_buffer_pool_size                  = {{ ((ansible_memtotal_mb * 0.40) / 1024) | round(1) | int }}
+innodb_log_buffer_size                   = {{ mysql_innodb_log_buffer_size }}
+innodb_log_file_size                     = {{ mysql_innodb_log_file_size }}
+thread-handling                          = pool-of-threads
+innodb_flush_method                      = O_DIRECT
+innodb_flush_log_at_trx_commit                   = 1
+innodb_io_capacity                                               = 2000
+innodb_io_capacity_max                                   = 4000
+
+
+
+# SSL Parameters
+require_secure_transport                                 = ON
+group_replication_ssl_mode                               = REQUIRED
+ssl_ca                                   = {{ mysql_ssl_ca }}
+ssl_cert                                 = {{ mysql_ssl_cert }}
+ssl_key                                  = {{ mysql_ssl_key }}
+
+
+[mysqldump]
+quick
+default-character-set                    = utf8mb4
+
+
+EOF
+
+
+cat ${WORK_FOLDER}/roles/mysql/templates/my.cnf.j2
+
+cat > ${WORK_FOLDER}/roles/mysql/templates/mysql-service.j2<<EOF
+[Unit]
+Description=Service file for Percona Server for Mysql ({{ mysql_app }} {{ mysql_env }})
+After=network.target syslog.target local-fs.target
+Wants=network-online.target
+StartLimitIntervalSec=500s
+StartLimitBurst=3
+
+
+[Service]
+Type=simple
+User=mysql
+Group=mysql
+
+ExecStart={{ mysql_basedir_location }}/bin/mysqld_safe --defaults-file={{ mysql_conf_location }}/my.cnf
+ExecStop={{ mysql_basedir_location }}/bin/mysqladmin --protocol=socket --socket={{ mysql_socket }} shutdown
+ExecReload={{ mysql_basedir_location }}/bin/mysqladmin --protocol=socket --socket={{ mysql_socket }}  reload
+PIDFile={{ mysql_pid_file }}
+
+
+Restart=always
+LimitNOFILE=65535
+RestartSec=30s
+TimeoutStartSec=600
+TimeoutStopSec=600
+KillSignal=SIGTERM
+SendSIGKILL=no
+
+
+[Install]
+WantedBy=multi-user.target
+
+EOF
+
+cat ${WORK_FOLDER}/roles/mysql/templates/mysql-service.j2
+
+
+3. install_mysql.yml
+
+cat > ${WORK_FOLDER}/roles/mysql/tasks/install_mysql.yml<<EOF
+---
+- name: "Installing Percona MySQL Server Version {{ mysql_version }}"
+  hosts: dbservers
+  vars_files:
+        - "${VARS_FOLDER}/${VARS_FILE}"
+  become: true
+  gather_facts: yes
+  tasks:
+        - name: "Creating Necessary Directories"
+          become: true
+          file:
+                path: "{{ item }}"
+                state: directory
+                owner: mysql
+                group: mysql
+                recurse: yes
+          loop:
+        - "{{ mysql_directories_location }}"
+        - "{{ mysql_datadir_location }}"
+        - "{{ mysql_logdir_location }}"
+        - "{{ mysql_tempdir_location }}"
+        - "{{ mysql_binlogdir_location }}"
+        - "{{ mysql_relaylogdir_location }}"
+        - "{{ mysql_conf_location }}"
+        - "{{ mysql_ssl_location }}"
+
+        - name: "Ensure below file exists"
+          become: true
+          file:
+                path: "{{ item }}"
+                state: touch
+                owner: mysql
+                group: mysql
+          loop:
+                - "{{ mysql_conf_location }}/my.cnf"
+                - "/etc/systemd/system/dbteam-{{ mysql_app }}-{{ mysql_env }}-mysql.service"
+
+        - name: "Copying my.cnf template"
+          become: true
+          template:
+                src: "${WORK_FOLDER}/roles/mysql/templates/my.cnf.j2"
+                dest: "{{ mysql_conf_location }}/my.cnf"
+                owner: mysql
+                group: mysql
+
+        - name: "Copying mysql.service template"
+          become: true
+          template:
+                src: "${WORK_FOLDER}/roles/mysql/templates/mysql-service.j2"
+                dest: "/etc/systemd/system/dbteam-{{ mysql_app }}-{{ mysql_env }}-mysql.service"
+
+        - name: "Reload daemon"
+          become: true
+          systemd:
+                daemon_reload: yes
+
+        - name: "enable mysql service"
+          become: true
+          systemd:
+                name: "dbteam-{{ mysql_app }}-{{ mysql_env }}-mysql.service"
+                enabled: yes
+
+        - name: "Disabling Group Replication Parameters"
+      become: true
+      shell: |
+        config_file="{{ mysql_conf_location }}/my.cnf"
+                config_file_bkp="\${config_file}.\$(date +%s)"
+                cp "\${config_file}" "\${config_file_bkp}"
+                sed -i 's/^\s*\(group_.*\)=/# \1=/' "\${config_file}"
+
+
+        - name: "Initializing the data directory"
+          become: true
+          shell: |
+                cd {{ mysql_basedir_location }}
+                bin/mysqld --defaults-file={{ mysql_conf_location }}/my.cnf --initialize --user=mysql
+
+        - name: "Copying ssl certs into {{ mysql_conf_location }}"
+          become: true
+          copy:
+                src: "{{ item.src }}"
+                dest: "{{ item.dest }}"
+                owner: mysql
+                group: mysql
+          loop:
+                - { src: "${WORK_FOLDER}/roles/mysql/templates/server-key.pem", dest: "{{ mysql_ssl_location }}/server-key.pem" }
+                - { src: "${WORK_FOLDER}/roles/mysql/templates/server-cert.pem", dest: "{{ mysql_ssl_location }}/server-cert.pem" }
+                - { src: "${WORK_FOLDER}/roles/mysql/templates/public_key.pem", dest: "{{ mysql_ssl_location }}/public_key.pem" }
+                - { src: "${WORK_FOLDER}/roles/mysql/templates/private_key.pem", dest: "{{ mysql_ssl_location }}/private_key.pem" }
+                - { src: "${WORK_FOLDER}/roles/mysql/templates/client-key.pem", dest: "{{ mysql_ssl_location }}/client-key.pem" }
+                - { src: "${WORK_FOLDER}/roles/mysql/templates/client-cert.pem", dest: "{{ mysql_ssl_location }}/client-cert.pem" }
+                - { src: "${WORK_FOLDER}/roles/mysql/templates/ca.pem", dest: "{{ mysql_ssl_location }}/ca.pem" }
+                - { src: "${WORK_FOLDER}/roles/mysql/templates/ca-key.pem", dest: "{{ mysql_ssl_location }}/ca-key.pem" }
+
+        - name: "Starting MySQL Service"
+          become: true
+          systemd:
+                name: "dbteam-{{ mysql_app }}-{{ mysql_env }}-mysql.service"
+                state: started
+
+        - name: "Wait for MySQL port to be open"
+          wait_for:
+                port: "{{ mysql_port }}"
+                state: started
+                timeout: 300
+
+        - name: "Getting the Temporary password"
+          become: true
+          shell: |
+                grep 'temporary password' {{ mysql_log_error }} | awk '{print \$NF}' | tail -1
+          register: mysql_temp_password
+
+        - name: "Printing the temporary password"
+          debug:
+                var: mysql_temp_password.stdout
+
+        - name: "Updating the {{ mysql_super_user }} password for localhost"
+          become: true
+          shell: |
+                {{ mysql_basedir_location }}/bin/mysql -u{{ mysql_super_user }} -p'{{ mysql_temp_password.stdout }}' --socket={{ mysql_socket }} --connect-expired-passw
+ord --execute="ALTER USER '{{ mysql_super_user }}'@'localhost' IDENTIFIED BY '{{ mysql_super_password }}';FLUSH PRIVILEGES;"
+
+        - name: "Creating the {{ mysql_super_user }} password for remote login"
+          become: true
+          shell: |
+                {{ mysql_basedir_location }}/bin/mysql --defaults-file={{ mysql_conf_location }}/my.cnf --execute="SET SQL_LOG_BIN=0;CREATE USER '{{ mysql_super_user }}
+'@'%' IDENTIFIED BY '{{ mysql_super_password }}'; GRANT ALL ON *.* TO '{{ mysql_super_user }}'@'%' WITH GRANT OPTION;SET SQL_LOG_BIN=1;FLUSH PRIVILEGES;"
+
+        - name: "Loadig Timezone tables"
+          become: true
+          shell: |
+                {{ mysql_basedir_location }}/bin/mysql_tzinfo_to_sql /usr/share/zoneinfo | {{ mysql_basedir_location }}/bin/mysql --defaults-file={{ mysql_conf_location
+ }}/my.cnf mysql
+      #when: "hostvars[inventory_hostname]['ansible_default_ipv4']['address'] in groups['primary']"
+
+    - name: "Creating the {{ mysql_cluster_admin_user }} password for Admin Activities"
+          become: true
+          shell: |
+                {{ mysql_basedir_location }}/bin/mysql --defaults-file={{ mysql_conf_location }}/my.cnf --execute="SET SQL_LOG_BIN=0;CREATE USER '{{ mysql_cluster_admin
+_user }}'@'%' IDENTIFIED BY '{{ mysql_cluster_admin_user_password }}'; GRANT ALL ON *.* TO '{{ mysql_cluster_admin_user }}'@'%' WITH GRANT OPTION;SET SQL_LOG_BIN=1;FLUS
+H PRIVILEGES;"
+
+EOF
+
+cat ${WORK_FOLDER}/roles/mysql/tasks/install_mysql.yml
+
+configure_cluster:
+
+cat > ${WORK_FOLDER}/roles/mysql/tasks/configure_group_replication.yml<<EOF
+---
+- name: "Setting up Percona InnoDB Cluster Group Replication"
+  hosts: dbservers
+  vars_files:
+        - "${VARS_FOLDER}/${VARS_FILE}"
+  become: true
+  gather_facts: yes
+  any_errors_fatal: true
+  tasks:
+    - name: "Enabling Group Replication params"
+      become: true
+      shell: |
+        #!/bin/bash
+        config_file="{{ mysql_conf_location }}/my.cnf"
+        config_file_bkp="\${config_file}.\$(date +%s)"
+        cp "\${config_file}" "\${config_file_bkp}"
+        sed -i 's/^#\s*\(group_.*\)=/\1=/' "\${config_file}"
+
+
+    - name: "Stopping MySQL Service"
+      become: true
+      systemd:
+        name: "dbteam-{{ mysql_app }}-{{ mysql_env }}-mysql.service"
+        state: stopped
+
+        - name: "Starting MySQL Service"
+      become: true
+      systemd:
+        name: "dbteam-{{ mysql_app }}-{{ mysql_env }}-mysql.service"
+        state: started
+        enabled: yes
+
+EOF
+
+cat ${WORK_FOLDER}/roles/mysql/tasks/configure_group_replication.yml
+
+
+cat > ${WORK_FOLDER}/roles/mysql/tasks/configure_cluster.yml<<EOF
+---
+- name: "Configure cluster"
+  hosts: dbservers
+  vars_files:
+        - "${VARS_FOLDER}/${VARS_FILE}"
+  become: true
+  gather_facts: yes
+  any_errors_fatal: true
+  tasks:
+        - name: "Checking if the nodes are part of the cluster"
+          become: true
+          shell: |
+                {{ mysql_shell_basedir_location }}/bin/mysqlsh {{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ m
+ysql_port }} --password={{ mysql_cluster_admin_user_password }} --js -e "print(dba.getCluster().status())"
+          register: clusterstatus
+      failed_when: false
+
+        - name: "Printing Cluster Status for {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }}"
+      debug:
+        var: clusterstatus.rc
+
+    - name: "Exiting if the node is already configured as a cluster"
+      fail:
+        msg: "Node {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }} is already part of InnoDB Cluster. Exiting..."
+      when: clusterstatus.rc == 0
+
+        - name: "Proceeding with the Cluster Initialization and Setup"
+      debug:
+        msg: "Node {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }} is Not part of InnoDB Cluster. Proceeding..."
+      when: clusterstatus.rc != 0
+
+        - name: "Checking the Instance Configuration"
+      become: true
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh {{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_por
+t }} --password={{ mysql_cluster_admin_user_password }} --js -e "dba.checkInstanceConfiguration()"
+      register: instanceconfiguration_status
+      failed_when: false
+          when: clusterstatus.rc != 0
+
+        - name: "Printing Instance configuration for {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }}"
+      debug:
+        var: instanceconfiguration_status
+
+    - name: "Exiting if the node is not configured properly to setup as a member of the cluster"
+      fail:
+        msg: "Node {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }} Is having issues. Need to update the config accordingly. Exiti
+ng..."
+      when:
+        - clusterstatus.rc != 0
+        - instanceconfiguration_status.rc != 0 or ('invalid' in instanceconfiguration_status.stderr | lower)
+
+    - name: "Creating the cluster on the primary Node"
+      become: true
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh {{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_por
+t }} --password={{ mysql_cluster_admin_user_password }} --js -e "dba.createCluster('{{ mysql_app }}_{{ mysql_env }}_{{ mysql_dc }}_cluster')"
+      when: "hostvars[inventory_hostname]['ansible_default_ipv4']['address'] in groups['primary']"
+
+    - name: "Checking the cluster status on the Primary Node"
+      become: true
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh {{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_por
+t }} --password={{ mysql_cluster_admin_user_password }} --js -e "print(dba.getCluster().status())"
+      register: primarynodeclusterstatus
+      failed_when: false
+      when: "hostvars[inventory_hostname]['ansible_default_ipv4']['address'] in groups['primary']"
+
+        - name: "Printing Cluster Status on the Primary Node"
+      debug:
+        var: primarynodeclusterstatus.rc
+      when: "hostvars[inventory_hostname]['ansible_default_ipv4']['address'] in groups['primary']"
+
+    - name: "Exiting if the primary wasnt bootstrapped"
+      fail:
+        msg: "Node {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }} is not bootstrapped . Exiting..."
+      when: hostvars[groups['primary'][0]].primarynodeclusterstatus.rc != 0
+      run_once: true
+
+        - name: "Adding Secondaries to the cluster by connecting to the primary node"
+      become: true
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh {{ mysql_cluster_admin_user }}@{{ groups['primary'][0] }}:{{ mysql_port }} --password={{ mysql_cluster_admin_user
+_password }} --js -e "var cluster = dba.getCluster('{{ mysql_app }}_{{ mysql_env }}_{{ mysql_dc }}_cluster');cluster.addInstance('{{ mysql_cluster_admin_user }}@{{ item
+ }}:{{ mysql_port }}',{password:'{{ mysql_cluster_admin_user_password }}', recoveryMethod: 'clone'});"
+      loop: "{{ groups['secondary'] }}"
+      run_once: true
+      when: hostvars[groups['primary'][0]].primarynodeclusterstatus.rc == 0
+
+    - name: "Checking the cluster status on the Primary Node"
+      become: true
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh {{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_por
+t }} --password={{ mysql_cluster_admin_user_password }} --js -e "print(dba.getCluster().status())"
+      register: clusterstatus
+
+    - name: "Printing the Cluster Status"
+      debug:
+        var: clusterstatus
+EOF
+
+cat ${WORK_FOLDER}/roles/mysql/tasks/configure_cluster.yml
+
+
+
+maintenance
+
+¦   ¦   ¦   ¦   ¦   ¦   +-- maintenance/
+¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- tasks/
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +--mysql_physical_backup.yml
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +--mysql_logical_backup.yml
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +--mysql_ha_script.yml
+¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- templates/
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- env_setup.j2
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- Percona_Xtrabackup.j2
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- mysqlchk.j2
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- innodbclusterchk.j2
+
+
+cat ${WORK_FOLDER}/roles/maintenance/templates/env_setup.j2<<'EOF'
+#!/bin/sh
+
+export APP_NAME=$2
+export APP_HOME="/home/mysql/scripts"
+export APP_ENV=$APP_HOME/env
+export LOGDIR=$APP_HOME/logs
+export WORKDIR=$APP_HOME/jobs
+[ -d "$LOGDIR" ] || mkdir -p "$LOGDIR"
+[ -d "$WORKDIR" ] || mkdir -p "$WORKDIR"
+[ -d "$LOGDIR" ] || exit 1
+[ -d "$WORKDIR" ] || exit 1
+cd "$WORKDIR" || exit 1
+export JOBNAME=$(basename $1 .sh)
+export JOBSTARTTIME=$(/bin/date "+%Y-%m-%d-%H:%M:%S")
+export JOBSTARTTIMEUTC=$(/bin/date --utc "+%Y-%m-%d-%H:%M:%S-UTC")
+clean="find "$LOGDIR" -name '$JOBNAME.*' -type f -mtime +30 -exec rm -f '{}' \;"
+eval "$clean" || { echo "Failed to clean $clean" 1>&2 ; exit 1; }
+export STDOUT="$LOGDIR"/$JOBNAME.out.$JOBSTARTTIME
+export STDERR="$LOGDIR"/$JOBNAME.err.$JOBSTARTTIME
+echo "Redirecting STDOUT to $STDOUT"
+echo "Redirecting STDERR to $STDERR"
+exec > "$STDOUT" || exit 1
+exec 2> "$STDERR" || exit 1
+echo "Job $JOBNAME started at $JOBSTARTTIME"
+echo "Job working directory $WORKDIR"
+EOF
+
+cat ${WORK_FOLDER}/roles/maintenance/templates/env_setup.j2
+
+cat ${WORK_FOLDER}/roles/maintenance/templates/percona_xtrabackup.j2<<'EOF'
+
+#!/bin/sh
+. /home/mysql/scripts/env/env_setup.sh $0 "scripts"
+
+
+if [[ $# -ne 4 ]]; then
+  echo "[`date +%Y\-%m\-%d\ %H\:%M\:%S`] [ERROR]: Nessary Arguments are not passed to the script"
+  echo "[`date +%Y\-%m\-%d\ %H\:%M\:%S`] [INFO]: USAGE: ./$(basename $0) DEFAULTS_FILE{/etc/my.cnf} ENV{GDSQA/BEDROCKQA} DB_ENV{PROD/NONPROD}  IS_REPLICA{0/1}"
+  exit 1
+fi
+
+DEFAULTS_FILE=$1
+ENV=$2
+DB_ENV=$3
+IS_REPLICA=$4
+COMPRESS_THREADS=10
+PARALLEL_THREADS=10
+PARALLEL_UPLOADS=10
+BACKUP_DIR=$(date -I)
+FROM_EMAIL="CNBCDB-Backups@ec.cnbc.com"
+EMAIL_RECIPIENTS='cnbcdbteamdev@nbcuni.com'
+MYSQL_BASEDIR="{{ mysql_basedir_location }}/bin"
+XTRABACKUP_BASEDIR="{{ percona_xtrabackup_basedir_location }}/bin"
+HOSTNAME=$(hostname -s)
+SCRIPT=$0
+S3_LOCATION="s3://cnbc-dbteam-backups/DB_Backups/$DB_ENV/$ENV/Physical/$HOSTNAME/$BACKUP_DIR"
+S3_PATH="s3://cnbc-dbteam-backups/DB_Backups/$DB_ENV/$ENV/Physical/$HOSTNAME/"
+export AWS_SECRET_ACCESS_KEY=$(mongosh "mongodb://reader:tFFXdVkLYi5Y8s@10.54.5.208:27017,10.54.5.209:27017,10.54.5.210:27017/admin?replicaSet=dbteam" --quiet --eval 'u
+se credentials_store' --eval 'EJSON.stringify(db.credentials.find( { "Application": { $regex: /^awsconsole/, $options: "i"} , "Env": { $regex: /^all/, $options: "i" } ,
+ "Account": { $regex: /^cnbc/, $options: "i" }} , {"_id": 0 , "user_access_metadata.metadata.value" : 1}).toArray())' | jq -r '.[]| .user_access_metadata[].metadata[].v
+alue')
+export AWS_ACCESS_KEY_ID=$(mongosh "mongodb://reader:tFFXdVkLYi5Y8s@10.54.5.208:27017,10.54.5.209:27017,10.54.5.210:27017/admin?replicaSet=dbteam" --quiet --eval 'use c
+redentials_store' --eval 'EJSON.stringify(db.credentials.find( { "Application": { $regex: /^awsconsole/, $options: "i"} , "Env": { $regex: /^all/, $options: "i" }, "Acc
+ount": { $regex: /^cnbc/, $options: "i" } } , {"_id": 0 , "user_access_metadata.metadata.key" : 1 }).toArray())' | jq -r '.[]| .user_access_metadata[].metadata[].key')
+
+
+function log_messages()
+{
+  message=$1
+  info=$2
+  echo "[`date +%Y\-%m\-%d\ %H\:%M\:%S`] [$info]: $message"
+}
+
+
+function send_email()
+{
+  message=$1
+  status=$2
+  subject=$3
+
+  echo "message --> $message"
+  echo "status --> $status"
+  echo "subject --> $subject"
+
+  if [[ $status = "ERROR" ]]; then
+  echo "$message. Please check script error log.Script is located at [$HOSTNAME:$SCRIPT]" | mailx -r "DatabaseBackup-Monitor" -s "$subject" "$EMAIL_RECIPIENTS"
+  exit 0
+  else
+  echo "$message. Script is located at [$HOSTNAME:$SCRIPT]" | mailx -r "DatabaseBackup-Monitor" -s "$subject" "$EMAIL_RECIPIENTS"
+  fi
+}
+
+function check_mysql()
+{
+  mysql_alive=`$MYSQL_BASEDIR/mysqladmin --defaults-file=$DEFAULTS_FILE --connect-timeout=30 ping`
+  if [[ $? -ne 0 ]]; then
+  log_messages "Status of MySQL is [ $mysql_alive ]" "ERROR"
+  log_messages "Cannot get status of MySQL" "ERROR"
+  message="Cannot get status of MySQL based on defaults file [$DEFAULTS_FILE]"
+  info="ERROR"
+  subject="Cannot get status of MySQL"
+  send_email "$message" "$info" "$subject"
+  exit 0
+  else
+  log_messages "Status of MySQL is [ $mysql_alive ]" "INFO"
+  if [[ $mysql_alive == "mysqld is alive" ]]; then
+    if [[ $IS_REPLICA == 1 ]]; then
+    log_messages "Checking Replication Status" "INFO"
+    replicationinfo=($($MYSQL_BASEDIR/mysql --defaults-file=$DEFAULTS_FILE --execute="SHOW REPLICA STATUS" -nE | grep -E 'Replica_IO_Running:|Replica_SQL_Running:|Secon
+ds_Behind_Source:' | awk '{ gsub(/ /,""); print }'))
+    if [[ ${replicationinfo[0]} == "Replica_IO_Running:Yes" && ${replicationinfo[1]} == "Replica_SQL_Running:Yes" ]]; then
+      log_messages "Replication Status is [${replicationinfo[0]} | ${replicationinfo[1]} | ${replicationinfo[2]}]" "INFO"
+    else
+      log_messages "Replication Status is [${replicationinfo[0]} | ${replicationinfo[1]}  | ${replicationinfo[2]} ]" "ERROR"
+      message="Replication Status is [${replicationinfo[0]} | ${replicationinfo[1]}  | ${replicationinfo[2]} ]"
+      info="ERROR"
+      subject="Replication Issue"
+      send_email "$message" "$info" "$subject"
+    fi
+    elif [[ $IS_REPLICA == 0 ]]; then
+    log_messages "Skipping Replication Check" "INFO"
+    else
+    log_messages "Unrecognized Param" "ERROR"
+    fi
+  else
+    log_messages "Status of MySQL is [ $mysql_alive ]" "ERROR"
+    log_messages "Sending Email" "ERROR"
+    message="MySQL is Down. Cannot connect to MySQL"
+    info="ERROR"
+    subject="MySQL is Down"
+    send_email "$message" "$info" "$subject"
+
+  fi
+  fi
+
+}
+
+function physical_backup()
+{
+  log_messages "Checking if full Physical Backup exists" "INFO"
+  xtrabackup_info_cnt=`aws s3 ls $S3_LOCATION/FULL/xtrabackup_info | wc -l`
+  if [[ $xtrabackup_info_cnt -gt 0 ]]; then
+  log_messages "Full Physical Backup exists.Proceeding with incremental" "INFO"
+  log_messages "Checking if any incremental job running" "INFO"
+  if [[ -f "/tmp/$ENV-$BACKUP_DIR-incr.txt" ]]; then
+    log_messages "There is already an incremental backup job running." "WARN"
+    exit 0
+  else
+    touch /tmp/$ENV-$BACKUP_DIR-incr.txt
+    mkdir -p /tmp/$ENV/LSN
+    aws s3 cp $S3_LOCATION/LSN/ /tmp/$ENV/LSN/ --recursive
+    incr_dir_cnt=`aws s3 ls $S3_LOCATION/INCR | wc -l`
+    if [[ -z $incr_dir_cnt ]]; then
+    incr_dir_cnt=0
+    fi
+    NUMBER=$(($incr_dir_cnt + 1))
+    $XTRABACKUP_BASEDIR/xtrabackup --defaults-file=$DEFAULTS_FILE --backup --history --safe-slave-backup --slave-info --stream=xbstream --extra-lsndir=/tmp/$ENV/LSN --t
+arget-dir=/tmp/$ENV/LSN --incremental-basedir=/tmp/$ENV/LSN --extra-lsndir=/tmp/$ENV/LSN | $XTRABACKUP_BASEDIR/xbcloud put $S3_LOCATION/INCR$NUMBER --s3-access-key=${AW
+S_ACCESS_KEY_ID} --s3-secret-key=${AWS_SECRET_ACCESS_KEY}  --parallel=$PARALLEL_UPLOADS inc_backup
+    if [[ $? -ne 0 ]]; then
+    log_messages "Error While Taking Incremental backup for env [$ENV] into location [$S3_LOCATION/INCR]" "ERROR"
+    log_messages "Sending Email" "ERROR"
+    message="Issue while Taking Incremental backup"
+    info="ERROR"
+    subject="Alter | DB Backup | $ENV - Issue While Taking Incremental backup"
+    send_email "$message" "$info" "$subject"
+    else
+    log_messages "Done Taking Incremental Backup for $ENV into [$S3_LOCATION/INCR]" "INFO"
+    echo "Incremental backup [INCR$NUMBER] can be used to restore till --> " `cat /tmp/$ENV/LSN/xtrabackup_info | grep end_time | awk -F"=" '{print $2}'` >> /tmp/$ENV/L
+SN/Restore_till.txt
+    aws s3 cp /tmp/$ENV/LSN $S3_LOCATION/LSN --recursive
+    rm -rf /tmp/$ENV-$BACKUP_DIR-incr.txt
+    fi
+  fi
+  else
+  log_messages "Full Backup Doesn't exists.Proceeding with Full Physical Backup" "INFO"
+  log_messages "Checking if full Physical Backup job is already running" "INFO"
+  if [[ -f "/tmp/$ENV-$BACKUP_DIR-full.txt" ]]; then
+    log_messages "There is already a full backup job running." "WARN"
+    exit 0
+  else
+    log_messages "Proceeding with Full Physical Backup" "INFO"
+    touch /tmp/$ENV-$BACKUP_DIR-full.txt
+    log_messages "Moving any existing Full backups to another Folder" "INFO"
+    aws s3 mv $S3_LOCATION/FULL $S3_LOCATION/FULL-$(date "+%s") --recursive
+    mkdir -p /tmp/$ENV/LSN
+    rm -rf /tmp/$ENV/LSN/*
+    $XTRABACKUP_BASEDIR/xtrabackup --defaults-file=$DEFAULTS_FILE --backup --history --safe-slave-backup --slave-info --stream=xbstream --extra-lsndir=/tmp/$ENV/LSN --t
+arget-dir=/tmp/$ENV  | $XTRABACKUP_BASEDIR/xbcloud put $S3_LOCATION/FULL --s3-access-key=${AWS_ACCESS_KEY_ID} --s3-secret-key=${AWS_SECRET_ACCESS_KEY}  --parallel=$PARA
+LLEL_UPLOADS full_backup
+    if [[ $? -ne 0 ]]; then
+    log_messages "Error While Taking full physical backup for env [$ENV] into location [$S3_LOCATION/FULL]" "ERROR"
+    log_messages "Sending Email" "ERROR"
+    message="Issue while removing older backups from S3 [$s3_path]"
+    info="ERROR"
+    subject="Alter | DB Backup | $ENV - Issue While Taking full physical backup"
+    send_email "$message" "$info" "$subject"
+    else
+    log_messages "Done Taking Full Physical Backup for $ENV into [$S3_LOCATION/FULL]" "INFO"
+    echo "full backup can be used to restore till --> " `cat /tmp/$ENV/LSN/xtrabackup_info | grep end_time | awk -F"=" '{print $2}'` > /tmp/$ENV/LSN/Restore_till.txt
+    aws s3 cp /tmp/$ENV/LSN $S3_LOCATION/LSN --recursive
+    rm -rf /tmp/$ENV-$BACKUP_DIR-full.txt
+    fi
+  fi
+  fi
+}
+
+log_messages "Checking MySQL" "INFO"
+check_mysql
+log_messages "Taking Backup" "INFO"
+physical_backup
+EOF
+
+cat ${WORK_FOLDER}/roles/maintenance/templates/percona_xtrabackup.j2
+
+
+cat ${WORK_FOLDER}/roles/maintenance/templates/mysqlchk.j2<<'EOF'
+# default: on
+# description: mysqlchk
+service mysqlchk
+{
+# this is a config for xinetd, place it in /etc/xinetd.d/
+        disable = no
+        flags           = REUSE
+        socket_type     = stream
+        type            = UNLISTED
+        port            = 9200
+        wait            = no
+        user            = nobody
+        server          = /usr/bin/innodbclustercheck
+        log_on_failure  += USERID
+        only_from       = 0.0.0.0/0
+        per_source      = UNLIMITED
+}
+EOF
+
+
+monitor
+
+¦   ¦   ¦   ¦   ¦   ¦   +-- monitor/
+¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- tasks/
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +--mysql_daemon_monitor.sh.yml
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +--mysql_replication_monitor.yml
+¦   ¦   ¦   ¦   ¦   ¦   ¦    +-- templates/
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- mysqldmonitor.j2
+¦   ¦   ¦   ¦   ¦   ¦   ¦    ¦    +-- mysqlreplication.sh.j2
+
+
+
+
+Validation:
+
+
+Main Playbook:
+
+cat > ${PLAYBOOK_FOLDER}/main.yml<<EOF
+---
+- name: "Installing Dependencies"
+  import_playbook: "${WORK_FOLDER}/roles/mysql/tasks/install_dependencies.yml"
+  tags: ["install_dependencies"]
+
+- name: "Dowloading MySQL Binaries"
+  import_playbook: "${WORK_FOLDER}/roles/mysql/tasks/download_binaries.yml"
+  tags: ["download_binaries"]
+
+- name: "Installing MySQL"
+  import_playbook: "${WORK_FOLDER}/roles/mysql/tasks/install_mysql.yml"
+  tags: ["install_mysql"]
+
+- name: "Configuring Group Replication"
+  import_playbook: "${WORK_FOLDER}/roles/mysql/tasks/configure_group_replication.yml"
+  tags: ["setup_group_replication"]
+
+- name: "Configuring Cluster"
+  import_playbook: "${WORK_FOLDER}/roles/mysql/tasks/configure_cluster.yml"
+  tags: ["configure_cluster"]
+
+EOF
+
+
+cat ${PLAYBOOK_FOLDER}/main.yml
+
+
+hyadlapalli_Pa55word
+
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "install_dependencies" --check
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "download_binaries" --check
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "install_mysql" --check
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "setup_group_replication" --check
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "configure_cluster" --check
+
+
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "install_dependencies"
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "download_binaries"
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "install_mysql"
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "setup_group_replication"
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml --tags "configure_cluster"
+
+
+
+ansible-playbook -i ${HOSTS_FOLDER}/${HOSTS_FILE} ${PLAYBOOK_FOLDER}/main.yml
+
+
+cp ${HOSTS_FOLDER}/hosts_conf.ini ${HOSTS_FOLDER}/${HOSTS_FILE}
