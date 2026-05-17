@@ -1,0 +1,640 @@
+// ============================================================================
+// Jenkinsfile — MySQL InnoDB Cluster 3-Node Deployment (Ubuntu EC2 Optimized)
+// ============================================================================
+// Features:
+// - Multi-stage pipeline with comprehensive pre-flight checks
+// - Ubuntu/Debian OS compatibility (apt instead of yum)
+// - Jenkins worker node support (agent labels)
+// - Detailed logging and error handling
+// - SSH connectivity validation
+// - Ansible dry-run capability
+// ============================================================================
+
+pipeline {
+    agent {
+        node {
+            label 'mysql-worker'  // Requires Jenkins workers tagged with 'mysql-worker'
+            customWorkspace "/opt/jenkins/workspace/${env.JOB_NAME}-${env.BUILD_NUMBER}"
+        }
+    }
+    
+    options {
+        timestamps()
+        timeout(time: 3, unit: 'HOURS')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
+        disableConcurrentBuilds(abortPrevious: true)
+        ansiColor('xterm')
+    }
+
+    parameters {
+        // ━━━━━━━━━━━━━━━━━━━ DEPLOYMENT CONTROL ━━━━━━━━━━━━━━━━━━━
+        choice(name: 'DEPLOYMENT_MODE',
+            choices: ['full-stack', 'dependencies-only', 'mysql-only', 'cluster-setup', 'validate-only'],
+            description: 'full-stack=all stages, dependencies-only=skip MySQL, mysql-only=MySQL+cluster, validate-only=dry-run only')
+        
+        booleanParam(name: 'DRY_RUN',         defaultValue: true, description: 'Run in --check mode (no changes applied)')
+        booleanParam(name: 'SKIP_PREFLIGHT',  defaultValue: false, description: 'Skip pre-flight checks (not recommended)')
+
+        // ━━━━━━━━━━━━━━━━━━━ TARGET NODES ━━━━━━━━━━━━━━━━━━━
+        string(name: 'NODE1_IP',   defaultValue: '', description: '[REQUIRED] Primary MySQL node IP')
+        string(name: 'NODE2_IP',   defaultValue: '', description: '[REQUIRED] Secondary MySQL node 1 IP')
+        string(name: 'NODE3_IP',   defaultValue: '', description: '[REQUIRED] Secondary MySQL node 2 IP')
+        string(name: 'SSH_USER',   defaultValue: 'ubuntu', description: 'SSH user (ubuntu, ec2-user, admin)')
+        string(name: 'SSH_PORT',   defaultValue: '22', description: 'SSH port')
+
+        // ━━━━━━━━━━━━━━━━━━━ MYSQL CONFIGURATION ━━━━━━━━━━━━━━━━━━━
+        choice(name: 'MYSQL_VERSION', choices: ['8.0', '8.4'], description: 'MySQL major version')
+        choice(name: 'MYSQL_MINOR',
+            choices: ['8.0.42-33', '8.0.40-31', '8.4.4-4'],
+            description: 'Percona Server minor version')
+        string(name: 'MYSQL_PORT',        defaultValue: '3306',  description: 'MySQL port')
+        string(name: 'MYSQL_GR_PORT',     defaultValue: '33106', description: 'Group Replication port')
+        string(name: 'MYSQL_DATA_DIR',    defaultValue: '/dbdata/mysql', description: 'Base data directory')
+        string(name: 'MYSQL_BUFFER_POOL', defaultValue: '4G', description: 'InnoDB buffer pool size')
+
+        // ━━━━━━━━━━━━━━━━━━━ CLUSTER IDENTITY ━━━━━━━━━━━━━━━━━━━
+        string(name: 'APP_NAME', defaultValue: 'myapp', description: 'Application name')
+        string(name: 'ENV_NAME', defaultValue: 'poc', description: 'Environment (poc/dev/qa/prod)')
+        string(name: 'DC_NAME',  defaultValue: 'dc1', description: 'Data center ID')
+
+        // ━━━━━━━━━━━━━━━━━━━ S3 CONFIGURATION ━━━━━━━━━━━━━━━━━━━
+        string(name: 'S3_BUCKET', defaultValue: 'your-org-mysql-binaries', 
+               description: 'S3 bucket name (without s3://) containing MySQL binaries')
+
+        // ━━━━━━━━━━━━━━━━━━━ JENKINS CREDENTIALS ━━━━━━━━━━━━━━━━━━━
+        string(name: 'SSH_CRED_ID',     defaultValue: 'mysql-ssh-key', 
+               description: 'Jenkins SSH credential ID')
+        string(name: 'SUDO_PASS_CRED',  defaultValue: 'mysql-sudo-pass', 
+               description: 'Jenkins secret-text credential ID for sudo password')
+        string(name: 'VAULT_PASS_CRED', defaultValue: 'ansible-vault-pass', 
+               description: 'Jenkins secret-text credential ID for Ansible Vault password')
+
+        // ━━━━━━━━━━━━━━━━━━━ ADVANCED OPTIONS ━━━━━━━━━━━━━━━━━━━
+        booleanParam(name: 'VERBOSE', defaultValue: false, description: 'Enable verbose Ansible output (-vv)')
+        booleanParam(name: 'DEBUG',   defaultValue: false, description: 'Enable debug logging')
+    }
+
+    environment {
+        // Paths
+        WORK_DIR          = "ansible"
+        INVENTORY_FILE    = "${WORK_DIR}/inventory/hosts.ini"
+        VARS_FILE         = "${WORK_DIR}/inventory/vars.yml"
+        PLAYBOOK_MAIN     = "${WORK_DIR}/playbooks/main.yml"
+        PLAYBOOK_VALIDATE = "${WORK_DIR}/playbooks/validate_setup.yml"
+        LOG_DIR           = "${WORKSPACE}/logs"
+        
+        // S3 Configuration
+        S3_BASE           = "s3://${params.S3_BUCKET}"
+        
+        // Ansible Environment (Ubuntu-specific)
+        ANSIBLE_HOST_KEY_CHECKING = "False"
+        ANSIBLE_PYTHON_INTERPRETER = "/usr/bin/python3"
+        ANSIBLE_COLLECTIONS_ON_ANSIBLE_VERSION_MISMATCH = "ignore"
+        
+        // Flags
+        VERBOSE_FLAG      = "${params.VERBOSE ? '-vv' : ''}"
+        DEBUG_FLAG        = "${params.DEBUG ? '-x' : ''}"
+        DRY_RUN_FLAG      = "${params.DRY_RUN ? '--check' : ''}"
+    }
+
+    stages {
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Initialize') {
+        // ════════════════════════════════════════════════════════════════
+            steps {
+                script {
+                    println """
+                    ╔════════════════════════════════════════════════════════╗
+                    ║  MySQL InnoDB Cluster — Ubuntu EC2 Deployment Pipeline ║
+                    ║  Build: #${env.BUILD_NUMBER} | Job: ${env.JOB_NAME}     ║
+                    ╚════════════════════════════════════════════════════════╝
+                    """
+                    sh "mkdir -p ${LOG_DIR}"
+                    sh "echo 'Pipeline started: '$(date) > ${LOG_DIR}/pipeline-${BUILD_NUMBER}.log"
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Pre-Flight Checks') {
+        // ════════════════════════════════════════════════════════════════
+            when { expression { params.SKIP_PREFLIGHT != true } }
+            steps {
+                script {
+                    println "🔍 PRE-FLIGHT CHECKS"
+                    println "══════════════════════════════════════════════════════"
+                    
+                    sh '''
+                        set -e
+                        
+                        echo "✓ Checking Ansible installation..."
+                        ansible --version | head -1
+                        
+                        echo "✓ Checking Python 3..."
+                        python3 --version
+                        
+                        echo "✓ Checking SSH client..."
+                        ssh -V
+                        
+                        echo "✓ Checking git..."
+                        git --version | head -1
+                        
+                        echo "✓ Checking jq (JSON parsing)..."
+                        jq --version 2>/dev/null || echo "  ⚠ jq not found (optional)"
+                        
+                        echo "✓ Checking aws cli..."
+                        aws --version 2>/dev/null || echo "  ⚠ AWS CLI not found (needed for S3)"
+                        
+                        echo "✓ Verifying workspace..."
+                        pwd && ls -la
+                        
+                        echo ""
+                        echo "✅ All pre-flight checks completed"
+                    '''
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Validate Parameters') {
+        // ════════════════════════════════════════════════════════════════
+            steps {
+                script {
+                    println "✓ VALIDATING INPUT PARAMETERS"
+                    println "══════════════════════════════════════════════════════"
+                    
+                    def errors = []
+                    
+                    // Validate IP addresses
+                    ['NODE1_IP', 'NODE2_IP', 'NODE3_IP'].each { param ->
+                        def ip = params[param]
+                        if (!ip?.trim()) {
+                            errors.add("❌ ${param} is required (empty)")
+                        } else if (!ip.matches(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
+                            errors.add("❌ ${param} invalid format: ${ip}")
+                        }
+                    }
+                    
+                    // Validate IPs are unique
+                    def ips = [params.NODE1_IP, params.NODE2_IP, params.NODE3_IP]
+                    if (ips.unique().size() != 3) {
+                        errors.add("❌ NODE IPs must be unique")
+                    }
+                    
+                    // Validate ports
+                    try {
+                        def port = params.MYSQL_PORT.toInteger()
+                        if (port < 1024 || port > 65535) {
+                            errors.add("❌ MYSQL_PORT must be 1024-65535, got: ${port}")
+                        }
+                    } catch (e) {
+                        errors.add("❌ MYSQL_PORT not a valid number: ${params.MYSQL_PORT}")
+                    }
+                    
+                    try {
+                        def grPort = params.MYSQL_GR_PORT.toInteger()
+                        if (grPort < 1024 || grPort > 65535) {
+                            errors.add("❌ MYSQL_GR_PORT must be 1024-65535, got: ${grPort}")
+                        }
+                        if (grPort == params.MYSQL_PORT.toInteger()) {
+                            errors.add("❌ MYSQL_PORT and MYSQL_GR_PORT must differ")
+                        }
+                    } catch (e) {
+                        errors.add("❌ MYSQL_GR_PORT not a valid number: ${params.MYSQL_GR_PORT}")
+                    }
+                    
+                    if (errors) {
+                        errors.each { println it }
+                        error("Parameter validation failed")
+                    }
+                    
+                    println """
+                    ✅ All parameters validated:
+                       • Nodes: ${params.NODE1_IP}, ${params.NODE2_IP}, ${params.NODE3_IP}
+                       • MySQL: ${params.MYSQL_MINOR} | Ports: ${params.MYSQL_PORT}/${params.MYSQL_GR_PORT}
+                       • App/Env/DC: ${params.APP_NAME}/${params.ENV_NAME}/${params.DC_NAME}
+                       • SSH: ${params.SSH_USER}@* on port ${params.SSH_PORT}
+                       • Mode: ${params.DEPLOYMENT_MODE} | Dry-Run: ${params.DRY_RUN}
+                    """
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Verify Jenkins Credentials') {
+        // ════════════════════════════════════════════════════════════════
+            steps {
+                script {
+                    println "🔐 VERIFYING JENKINS CREDENTIALS"
+                    println "══════════════════════════════════════════════════════"
+                    
+                    try {
+                        withCredentials([
+                            sshUserPrivateKey(credentialsId: params.SSH_CRED_ID, keyFileVariable: 'KEY')
+                        ]) {
+                            println "✓ SSH credential '${params.SSH_CRED_ID}' found"
+                        }
+                    } catch (e) {
+                        error("❌ SSH credential '${params.SSH_CRED_ID}' not found in Jenkins")
+                    }
+                    
+                    try {
+                        withCredentials([
+                            string(credentialsId: params.SUDO_PASS_CRED, variable: 'PASS')
+                        ]) {
+                            println "✓ Sudo password credential '${params.SUDO_PASS_CRED}' found"
+                        }
+                    } catch (e) {
+                        println "⚠ Sudo credential '${params.SUDO_PASS_CRED}' not found (required for passworded sudo)"
+                    }
+                    
+                    println "✅ Credentials verification complete"
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('SSH Connectivity Test') {
+        // ════════════════════════════════════════════════════════════════
+            steps {
+                script {
+                    println "📡 TESTING SSH CONNECTIVITY TO ALL NODES"
+                    println "══════════════════════════════════════════════════════"
+                    
+                    withCredentials([
+                        sshUserPrivateKey(credentialsId: params.SSH_CRED_ID, keyFileVariable: 'SSH_KEY')
+                    ]) {
+                        sh '''
+                            set +e  # Don't exit on first error, but track them
+                            FAILED=0
+                            
+                            for NODE in ${NODE1_IP} ${NODE2_IP} ${NODE3_IP}; do
+                                echo "Testing SSH to $NODE..."
+                                if ssh -i "$SSH_KEY" \
+                                    -o StrictHostKeyChecking=no \
+                                    -o ConnectTimeout=10 \
+                                    -o BatchMode=yes \
+                                    -p ${SSH_PORT} \
+                                    "${SSH_USER}@${NODE}" "echo 'SSH OK' && uname -a" 2>&1 | tee -a ${LOG_DIR}/ssh-test.log
+                                then
+                                    echo "✓ SSH to $NODE successful"
+                                else
+                                    echo "❌ SSH to $NODE failed"
+                                    FAILED=$((FAILED + 1))
+                                fi
+                                echo ""
+                            done
+                            
+                            if [ $FAILED -gt 0 ]; then
+                                echo "❌ SSH connectivity test failed for $FAILED node(s)"
+                                exit 1
+                            fi
+                            
+                            echo "✅ SSH connectivity to all 3 nodes verified"
+                        '''
+                    }
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Resolve S3 Paths') {
+        // ════════════════════════════════════════════════════════════════
+            steps {
+                script {
+                    println "📦 RESOLVING S3 BINARY PATHS"
+                    println "══════════════════════════════════════════════════════"
+                    
+                    def s3Map = [
+                        '8.0.42-33': [
+                            mysql:     "${S3_BASE}/mysql/Percona-Server-8.0.42-33-Linux.x86_64.glibc2.28.tar.gz",
+                            xtrabackup:"${S3_BASE}/xtrabackup/percona-xtrabackup-8.0.35-34-Linux-x86_64.glibc2.28.tar.gz",
+                            shell:     "${S3_BASE}/mysql-shell/mysql-shell-8.0.43-linux-glibc2.28-x86-64bit.tar.gz",
+                            toolkit:   "${S3_BASE}/percona-toolkit/percona-toolkit-3.7.0-2_x86_64.tar.gz",
+                            proxysql:  "${S3_BASE}/proxysql/proxysql-2.7.3-Linux-x86_64.glibc2.28.tar.gz"
+                        ],
+                        '8.0.40-31': [
+                            mysql:     "${S3_BASE}/mysql/Percona-Server-8.0.40-31-Linux.x86_64.glibc2.28.tar.gz",
+                            xtrabackup:"${S3_BASE}/xtrabackup/percona-xtrabackup-8.0.33-28-Linux-x86_64.glibc2.28.tar.gz",
+                            shell:     "${S3_BASE}/mysql-shell/mysql-shell-8.0.41-linux-glibc2.28-x86-64bit.tar.gz",
+                            toolkit:   "${S3_BASE}/percona-toolkit/percona-toolkit-3.6.0_x86_64.tar.gz",
+                            proxysql:  "${S3_BASE}/proxysql/proxysql-2.6.1-Linux-x86_64.glibc2.28.tar.gz"
+                        ],
+                        '8.4.4-4': [
+                            mysql:     "${S3_BASE}/mysql/Percona-Server-8.4.4-4-Linux.x86_64.glibc2.28.tar.gz",
+                            xtrabackup:"${S3_BASE}/xtrabackup/percona-xtrabackup-8.4.0-2-Linux-x86_64.glibc2.28.tar.gz",
+                            shell:     "${S3_BASE}/mysql-shell/mysql-shell-8.4.4-linux-glibc2.28-x86-64bit.tar.gz",
+                            toolkit:   "${S3_BASE}/percona-toolkit/percona-toolkit-3.7.0-2_x86_64.tar.gz",
+                            proxysql:  "${S3_BASE}/proxysql/proxysql-2.7.3-Linux.x86_64.glibc2.28.tar.gz"
+                        ]
+                    ]
+                    
+                    def chosen = s3Map[params.MYSQL_MINOR]
+                    if (!chosen) {
+                        error("❌ No S3 mapping for MySQL ${params.MYSQL_MINOR}")
+                    }
+
+                    env.S3_MYSQL     = chosen.mysql
+                    env.S3_XTRABACKUP= chosen.xtrabackup
+                    env.S3_SHELL     = chosen.shell
+                    env.S3_TOOLKIT   = chosen.toolkit
+                    env.S3_PROXYSQL  = chosen.proxysql
+
+                    println """
+                    ✅ S3 paths resolved for ${params.MYSQL_MINOR}:
+                       • MySQL:       ${env.S3_MYSQL}
+                       • XtraBackup:  ${env.S3_XTRABACKUP}
+                       • Shell:       ${env.S3_SHELL}
+                       • Toolkit:     ${env.S3_TOOLKIT}
+                       • ProxySQL:    ${env.S3_PROXYSQL}
+                    """
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Generate Inventory & Vars') {
+        // ════════════════════════════════════════════════════════════════
+            steps {
+                script {
+                    println "📝 GENERATING ANSIBLE INVENTORY & VARIABLES"
+                    println "══════════════════════════════════════════════════════"
+                    
+                    def dirBase = "${params.MYSQL_DATA_DIR}/${params.APP_NAME}/${params.ENV_NAME}"
+                    def uuid    = sh(script: "uuidgen 2>/dev/null || echo 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'", returnStdout: true).trim()
+
+                    sh "mkdir -p ${WORK_DIR}/inventory"
+
+                    // Generate hosts.ini
+                    def hostsContent = """# Ansible Inventory — MySQL InnoDB Cluster
+# Generated: $(date)
+# Build: ${env.BUILD_NUMBER}
+
+[primary]
+${params.NODE1_IP} ansible_user=${params.SSH_USER} ansible_port=${params.SSH_PORT}
+
+[secondary]
+${params.NODE2_IP} ansible_user=${params.SSH_USER} ansible_port=${params.SSH_PORT}
+${params.NODE3_IP} ansible_user=${params.SSH_USER} ansible_port=${params.SSH_PORT}
+
+[cluster:children]
+primary
+secondary
+
+[cluster:vars]
+ansible_connection=ssh
+ansible_ssh_private_key_file=~/.ssh/id_rsa
+ansible_become=yes
+ansible_become_method=sudo
+ansible_python_interpreter=/usr/bin/python3
+"""
+                    writeFile file: env.INVENTORY_FILE, text: hostsContent
+                    println "✓ Generated: ${env.INVENTORY_FILE}"
+
+                    // Generate vars.yml
+                    def varsContent = """---
+# MySQL Version & Downloads
+mysql_version: "${params.MYSQL_MINOR}"
+mysql_download_url: "${env.S3_MYSQL}"
+perona_xtrabackup_download_url: "${env.S3_XTRABACKUP}"
+percona_toolkit_download_url: "${env.S3_TOOLKIT}"
+proxysql_download_url: "${env.S3_PROXYSQL}"
+mysql_shell_download_url: "${env.S3_SHELL}"
+
+# Network Ports
+mysql_port: ${params.MYSQL_PORT}
+mysql_groupreplication_port: ${params.MYSQL_GR_PORT}
+mysql_report_port: ${params.MYSQL_PORT}
+
+# Cluster Identity
+mysql_app: "${params.APP_NAME}"
+mysql_env: "${params.ENV_NAME}"
+mysql_dc: "${params.DC_NAME}"
+
+# Directory Structure
+mysql_directories_location: "${dirBase}"
+mysql_basedir_location: "${dirBase}/binaries/innodbcluster-${params.MYSQL_MINOR}"
+percona_xtrabackup_basedir_location: "${dirBase}/binaries/percona-xtrabackup"
+percona_toolkit_basedir_location: "${dirBase}/binaries/percona-toolkit"
+mysql_shell_basedir_location: "${dirBase}/binaries/mysql-shell"
+proxysql_basedir_location: "${dirBase}/binaries/proxysql"
+
+mysql_conf_location: "${dirBase}/conf"
+mysql_datadir_location: "${dirBase}/data"
+mysql_logdir_location: "${dirBase}/logs"
+mysql_tempdir_location: "${dirBase}/temp"
+mysql_binlogdir_location: "${dirBase}/binlogs"
+mysql_relaylogdir_location: "${dirBase}/relaylogs"
+mysql_ssl_location: "${dirBase}/ssl"
+
+# File Paths
+mysql_socket: "${dirBase}/data/mysql.sock"
+mysql_pid_file: "${dirBase}/data/mysqld.pid"
+mysql_log_error: "${dirBase}/logs/error.log"
+mysql_slow_query_log_file: "${dirBase}/logs/slow.log"
+mysql_general_log_file: "${dirBase}/logs/general.log"
+mysql_log_bin: "${dirBase}/binlogs/mysql-bin"
+mysql_log_bin_index: "${dirBase}/binlogs/mysql-bin.index"
+mysql_relay_log: "${dirBase}/relaylogs/relay-log"
+mysql_relay_log_index: "${dirBase}/relaylogs/relay-log.index"
+mysql_innodb_data_home_dir: "${dirBase}/data"
+mysql_innodb_log_group_home_dir: "${dirBase}/logs"
+
+# MySQL Credentials (use Ansible Vault!)
+mysql_super_user: "root"
+mysql_super_password: "{{ vault_mysql_super_password }}"
+mysql_cluster_admin_user: "clusteradmin"
+mysql_cluster_admin_user_password: "{{ vault_cluster_admin_password }}"
+
+# MySQL Tuning
+mysql_max_connections: 1000
+mysql_max_user_connections: 900
+mysql_max_allowed_packet: "256M"
+mysql_sort_buffer_size: "4M"
+mysql_innodb_buffer_pool_size: "${params.MYSQL_BUFFER_POOL}"
+mysql_innodb_log_buffer_size: "64M"
+mysql_innodb_log_file_size: "512M"
+mysql_lower_case_table_names: 1
+mysql_long_query_time: 2
+
+# SSL Configuration
+mysql_ssl_ca: "${dirBase}/ssl/ca.pem"
+mysql_ssl_cert: "${dirBase}/ssl/server-cert.pem"
+mysql_ssl_key: "${dirBase}/ssl/server-key.pem"
+
+# Group Replication
+mysql_group_replication_group_name: "${uuid}"
+"""
+                    writeFile file: env.VARS_FILE, text: varsContent
+                    println "✓ Generated: ${env.VARS_FILE}"
+                    
+                    println "✅ Inventory and variables generated"
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Ansible Syntax Check') {
+        // ════════════════════════════════════════════════════════════════
+            steps {
+                script {
+                    println "✓ CHECKING ANSIBLE SYNTAX"
+                    println "══════════════════════════════════════════════════════"
+                    
+                    sh '''
+                        if [ -f "${PLAYBOOK_MAIN}" ]; then
+                            echo "Checking syntax of ${PLAYBOOK_MAIN}..."
+                            ansible-playbook --syntax-check -i ${INVENTORY_FILE} ${PLAYBOOK_MAIN} || {
+                                echo "❌ Ansible syntax check failed"
+                                exit 1
+                            }
+                            echo "✅ Syntax check passed"
+                        else
+                            echo "⚠ ${PLAYBOOK_MAIN} not found (this is expected if roles haven't been created yet)"
+                        fi
+                    '''
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Dry-Run (Validation)') {
+        // ════════════════════════════════════════════════════════════════
+            when { expression { params.DRY_RUN == true || params.DEPLOYMENT_MODE == 'validate-only' } }
+            steps {
+                script {
+                    println "🔄 RUNNING ANSIBLE IN DRY-RUN MODE (--check)"
+                    println "══════════════════════════════════════════════════════"
+                    
+                    withCredentials([
+                        sshUserPrivateKey(credentialsId: params.SSH_CRED_ID, keyFileVariable: 'SSH_KEY'),
+                        string(credentialsId: params.SUDO_PASS_CRED, variable: 'SUDO_PASS')
+                    ]) {
+                        sh '''
+                            if [ ! -f "${PLAYBOOK_MAIN}" ]; then
+                                echo "⚠ Playbook ${PLAYBOOK_MAIN} not found"
+                                echo "   This is expected if roles haven't been created yet."
+                                echo "   Create the playbook structure before running deployment."
+                                exit 1
+                            fi
+                            
+                            echo "Running Ansible playbook in check mode..."
+                            ansible-playbook -i ${INVENTORY_FILE} ${PLAYBOOK_MAIN} \
+                                -e @${VARS_FILE} \
+                                -e "ansible_become_pass=${SUDO_PASS}" \
+                                --private-key="$SSH_KEY" \
+                                --check ${VERBOSE_FLAG} \
+                                2>&1 | tee -a ${LOG_DIR}/dry-run-${BUILD_NUMBER}.log
+                            
+                            echo ""
+                            echo "✅ Dry-run completed. No changes were applied."
+                        '''
+                    }
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Deploy') {
+        // ════════════════════════════════════════════════════════════════
+            when { 
+                expression { params.DRY_RUN == false && params.DEPLOYMENT_MODE != 'validate-only' }
+            }
+            steps {
+                script {
+                    println "⚠️  DEPLOYING TO PRODUCTION"
+                    println "══════════════════════════════════════════════════════"
+                    println "🟠 ALERT: This will make actual changes to ${params.NODE1_IP}, ${params.NODE2_IP}, ${params.NODE3_IP}"
+                    
+                    // Safety prompt (Jenkins will require approval for builds with security implications)
+                    input message: '⏸ CONFIRM: Ready to deploy to production nodes?', ok: 'Deploy Now'
+                    
+                    withCredentials([
+                        sshUserPrivateKey(credentialsId: params.SSH_CRED_ID, keyFileVariable: 'SSH_KEY'),
+                        string(credentialsId: params.SUDO_PASS_CRED, variable: 'SUDO_PASS')
+                    ]) {
+                        sh '''
+                            if [ ! -f "${PLAYBOOK_MAIN}" ]; then
+                                echo "❌ Playbook ${PLAYBOOK_MAIN} not found"
+                                exit 1
+                            fi
+                            
+                            echo "Running Ansible playbook (LIVE MODE)..."
+                            ansible-playbook -i ${INVENTORY_FILE} ${PLAYBOOK_MAIN} \
+                                -e @${VARS_FILE} \
+                                -e "ansible_become_pass=${SUDO_PASS}" \
+                                --private-key="$SSH_KEY" \
+                                ${VERBOSE_FLAG} \
+                                2>&1 | tee -a ${LOG_DIR}/deploy-${BUILD_NUMBER}.log
+                            
+                            echo ""
+                            echo "✅ Deployment completed"
+                        '''
+                    }
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        stage('Cluster Validation') {
+        // ════════════════════════════════════════════════════════════════
+            when { expression { params.DRY_RUN == false && params.DEPLOYMENT_MODE != 'validate-only' } }
+            steps {
+                script {
+                    println "✓ VALIDATING CLUSTER HEALTH"
+                    println "══════════════════════════════════════════════════════"
+                    
+                    withCredentials([
+                        sshUserPrivateKey(credentialsId: params.SSH_CRED_ID, keyFileVariable: 'SSH_KEY'),
+                        string(credentialsId: params.SUDO_PASS_CRED, variable: 'SUDO_PASS')
+                    ]) {
+                        sh '''
+                            if [ -f "${PLAYBOOK_VALIDATE}" ]; then
+                                echo "Running validation playbook..."
+                                ansible-playbook -i ${INVENTORY_FILE} ${PLAYBOOK_VALIDATE} \
+                                    -e @${VARS_FILE} \
+                                    -e "ansible_become_pass=${SUDO_PASS}" \
+                                    --private-key="$SSH_KEY" \
+                                    2>&1 | tee -a ${LOG_DIR}/validate-${BUILD_NUMBER}.log
+                            else
+                                echo "⚠ Validation playbook not found: ${PLAYBOOK_VALIDATE}"
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
+
+    }
+
+    post {
+        always {
+            script {
+                println """
+                ╔════════════════════════════════════════════════════════╗
+                ║  Pipeline Execution Summary                             ║
+                ╚════════════════════════════════════════════════════════╝
+                Build:        #${env.BUILD_NUMBER}
+                Status:       ${currentBuild.result}
+                Duration:     ${currentBuild.durationString}
+                Logs:         ${LOG_DIR}
+                Workspace:    ${env.WORKSPACE}
+                """
+            }
+            
+            // Archive artifacts
+            archiveArtifacts artifacts: 'ansible/inventory/**,logs/**', 
+                           allowEmptyArchive: true,
+                           fingerprint: true
+        }
+        
+        success {
+            println "✅ MySQL InnoDB Cluster deployment completed successfully"
+        }
+        
+        failure {
+            println "❌ Deployment failed. Review console output and logs above."
+        }
+    }
+}

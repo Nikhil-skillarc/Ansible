@@ -1,62 +1,89 @@
 // ============================================================
 // Jenkinsfile — MySQL InnoDB Cluster 3-Node Deployment
+// Ubuntu EC2 Optimized | Multi-Stage Pipeline
 // ============================================================
+@Library('shared') _
+
 pipeline {
-    agent any
+    agent {
+        node {
+            label 'mysql-worker'  // Runs on Jenkins worker nodes labeled 'mysql-worker'
+            customWorkspace "/opt/jenkins/workspace/${env.JOB_NAME}-${env.BUILD_NUMBER}"
+        }
+    }
+    
+    options {
+        timestamps()
+        timeout(time: 2, unit: 'HOURS')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
+        disableConcurrentBuilds(abortPrevious: true)
+    }
 
     parameters {
-        // ── Node IPs ──────────────────────────────────────────
-        string(name: 'NODE1_IP',        defaultValue: '',          description: 'Primary node IP address')
-        string(name: 'NODE2_IP',        defaultValue: '',          description: 'Secondary node 1 IP address')
-        string(name: 'NODE3_IP',        defaultValue: '',          description: 'Secondary node 2 IP address')
+        // ── DEPLOYMENT TYPE ───────────────────────────────────
+        choice(name: 'DEPLOYMENT_MODE',
+            choices: ['full-stack', 'dependencies-only', 'mysql-only', 'cluster-setup', 'validate-only'],
+            description: 'Deploy mode: full-stack=all, dependencies-only=no MySQL, mysql-only=just MySQL, cluster-setup=cluster config, validate-only=dry-run')
+
+        // ── Target Nodes ──────────────────────────────────────
+        string(name: 'NODE1_IP',        defaultValue: '',          description: 'Primary MySQL node IP (required)')
+        string(name: 'NODE2_IP',        defaultValue: '',          description: 'Secondary MySQL node 1 IP (required)')
+        string(name: 'NODE3_IP',        defaultValue: '',          description: 'Secondary MySQL node 2 IP (required)')
+        string(name: 'SSH_USER',        defaultValue: 'ubuntu',    description: 'SSH user (ubuntu, ec2-user, etc.)')
 
         // ── MySQL Version & S3 Binaries ───────────────────────
         choice(name: 'MYSQL_VERSION',   choices: ['8.0', '8.4'],   description: 'MySQL major version to install')
         choice(name: 'MYSQL_MINOR',
             choices: [
-                '8.0.42-33',   // Percona-Server-8.0.42-33
+                '8.0.42-33',
                 '8.0.40-31',
                 '8.4.4-4'
             ],
-            description: 'Exact Percona Server minor version (auto-selects S3 path)')
+            description: 'Exact Percona Server minor version')
+        string(name: 'S3_BUCKET',       defaultValue: 'your-org-mysql-binaries', description: 'S3 bucket name (without s3://)')
 
-        // ── Port & Data Directory ─────────────────────────────
+        // ── MySQL Configuration ───────────────────────────────
         string(name: 'MYSQL_PORT',      defaultValue: '3306',      description: 'MySQL listener port')
         string(name: 'MYSQL_GR_PORT',   defaultValue: '33106',     description: 'Group Replication communication port')
         string(name: 'MYSQL_DATA_DIR',  defaultValue: '/dbdata/mysql', description: 'Base data directory on all nodes')
+        string(name: 'MYSQL_BUFFER_POOL', defaultValue: '4G',      description: 'InnoDB buffer pool size')
 
         // ── Cluster Identity ──────────────────────────────────
-        string(name: 'APP_NAME',        defaultValue: 'myapp',     description: 'Application name (used in paths & cluster name)')
-        string(name: 'ENV_NAME',        defaultValue: 'poc',       description: 'Environment (poc / dev / qa / prod)')
+        string(name: 'APP_NAME',        defaultValue: 'myapp',     description: 'Application name')
+        string(name: 'ENV_NAME',        defaultValue: 'poc',       description: 'Environment (poc/dev/qa/prod)')
         string(name: 'DC_NAME',         defaultValue: 'dc1',       description: 'Data-centre identifier')
 
-        // ── Credentials (Jenkins Credential IDs) ─────────────
-        string(name: 'SSH_CRED_ID',     defaultValue: 'mysql-ssh-key',    description: 'Jenkins SSH credential ID for target nodes')
-        string(name: 'SUDO_PASS_CRED',  defaultValue: 'mysql-sudo-pass',  description: 'Jenkins secret-text credential ID for sudo password')
-
-        // ── Pipeline control ──────────────────────────────────
-        booleanParam(name: 'DRY_RUN',   defaultValue: true,        description: 'Run in --check mode only (no changes)')
-        choice(name: 'ANSIBLE_TAGS',
-            choices: [
-                'all',
-                'install_dependencies',
-                'download_binaries',
-                'install_mysql',
-                'setup_group_replication',
-                'configure_cluster'
-            ],
-            description: 'Run only a specific Ansible tag (select "all" for full deployment)')
+        // ── Credentials ───────────────────────────────────────
+        string(name: 'SSH_CRED_ID',     defaultValue: 'mysql-ssh-key',    description: 'Jenkins SSH credential ID')
+        string(name: 'SUDO_PASS_CRED',  defaultValue: 'mysql-sudo-pass',  description: 'Jenkins secret-text ID for sudo password')
+        string(name: 'VAULT_PASS_CRED', defaultValue: 'ansible-vault-pass', description: 'Jenkins secret-text ID for Ansible Vault (optional)')
+        
+        // ── Advanced Options ──────────────────────────────────
+        booleanParam(name: 'SKIP_PREFLIGHT',  defaultValue: false, description: 'Skip pre-flight checks (not recommended)')
+        booleanParam(name: 'VERBOSE',         defaultValue: false, description: 'Enable verbose Ansible output (-vv)')
+        booleanParam(name: 'NOTIFY_SLACK',    defaultValue: true,  description: 'Send Slack notifications (if configured)')
     }
 
     environment {
-        // Derived from parameters — available throughout stages
+        // Jenkins workspace paths
         WORK_DIR          = "ansible"
         INVENTORY_FILE    = "${WORK_DIR}/inventory/hosts.ini"
         VARS_FILE         = "${WORK_DIR}/inventory/vars.yml"
         PLAYBOOK_MAIN     = "${WORK_DIR}/playbooks/main.yml"
-
-        // S3 bucket paths keyed by MYSQL_MINOR
-        S3_BASE           = "s3://your-org-mysql-binaries"  // ← change to your bucket
+        PLAYBOOK_VALIDATE = "${WORK_DIR}/playbooks/validate_setup.yml"
+        
+        // S3 bucket configuration
+        S3_BASE           = "s3://${params.S3_BUCKET}"
+        
+        // Logging
+        LOG_FILE          = "${WORKSPACE}/deployment-${BUILD_NUMBER}.log"
+        
+        // Ansible configuration for Ubuntu compatibility
+        ANSIBLE_HOST_KEY_CHECKING = "False"
+        ANSIBLE_PYTHON_INTERPRETER = "/usr/bin/python3"
+        
+        // Verbosity
+        VERBOSE_FLAG      = "${params.VERBOSE ? '-vv' : ''}"
     }
 
     stages {
