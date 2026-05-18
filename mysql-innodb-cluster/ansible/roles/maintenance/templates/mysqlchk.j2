@@ -1,0 +1,21 @@
+# =============================================================
+# mysqlchk.j2 — xinetd service config for MySQL health-check
+# Deployed to: /etc/xinetd.d/mysqlchk
+# =============================================================
+
+# default: on
+# description: mysqlchk
+service mysqlchk
+{
+        disable         = no
+        flags           = REUSE
+        socket_type     = stream
+        type            = UNLISTED
+        port            = 9200
+        wait            = no
+        user            = nobody
+        server          = /usr/bin/innodbclustercheck
+        log_on_failure  += USERID
+        only_from       = 0.0.0.0/0
+        per_source      = UNLIMITED
+}

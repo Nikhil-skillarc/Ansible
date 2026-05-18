@@ -1,0 +1,92 @@
+---
+# ============================================================
+# install_dependencies.yml
+# ============================================================
+- name: "Install OS Dependencies on all cluster nodes"
+  hosts: cluster
+  gather_facts: true
+  vars_files:
+    - "../../../inventory/vars.yml"
+
+  tasks:
+    - name: "Install required system packages"
+      become: true
+      yum:
+        name:
+          - libaio
+          - numactl
+          - numactl-libs
+          - openssl
+          - openssl-libs
+          - perl
+          - perl-Data-Dumper
+          - perl-JSON
+          - net-tools
+          - wget
+          - unzip
+          - tar
+          - python3
+          - python3-pip
+          - awscli
+          - xinetd
+          - mailx
+        state: present
+        update_cache: true
+
+    - name: "Create mysql OS user"
+      become: true
+      user:
+        name: mysql
+        shell: /bin/bash
+        create_home: true
+        home: /home/mysql
+        comment: "MySQL Service Account"
+
+    - name: "Create all required MySQL directories"
+      become: true
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: mysql
+        group: mysql
+        mode: "0750"
+      loop:
+        - "{{ mysql_directories_location }}"
+        - "{{ mysql_basedir_location }}"
+        - "{{ percona_xtrabackup_basedir_location }}"
+        - "{{ percona_toolkit_basedir_location }}"
+        - "{{ mysql_shell_basedir_location }}"
+        - "{{ proxysql_basedir_location }}"
+        - "{{ mysql_conf_location }}"
+        - "{{ mysql_datadir_location }}"
+        - "{{ mysql_logdir_location }}"
+        - "{{ mysql_tempdir_location }}"
+        - "{{ mysql_binlogdir_location }}"
+        - "{{ mysql_relaylogdir_location }}"
+        - "{{ mysql_ssl_location }}"
+        - "/home/mysql/scripts/env"
+        - "/home/mysql/scripts/logs"
+        - "/home/mysql/scripts/jobs"
+
+    - name: "Set kernel parameters for MySQL"
+      become: true
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: true
+      loop:
+        - { key: "vm.swappiness",            value: "1" }
+        - { key: "net.core.somaxconn",        value: "65535" }
+        - { key: "net.ipv4.tcp_max_syn_backlog", value: "65535" }
+
+    - name: "Configure /etc/security/limits.conf for mysql user"
+      become: true
+      blockinfile:
+        path: /etc/security/limits.conf
+        marker: "# {mark} ANSIBLE MANAGED — mysql limits"
+        block: |
+          mysql soft nofile 65535
+          mysql hard nofile 65535
+          mysql soft nproc  65535
+          mysql hard nproc  65535

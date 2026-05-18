@@ -1,0 +1,160 @@
+#!/bin/sh
+# =============================================================
+# percona_xtrabackup.j2 — Physical backup via XtraBackup to S3
+# Usage: ./percona_xtrabackup.sh DEFAULTS_FILE ENV DB_ENV IS_REPLICA
+# =============================================================
+
+. /home/mysql/scripts/env/env_setup.sh $0 "scripts"
+
+if [[ $# -ne 4 ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Usage: ./$(basename $0) DEFAULTS_FILE ENV DB_ENV IS_REPLICA{0/1}"
+  exit 1
+fi
+
+DEFAULTS_FILE=$1
+ENV=$2
+DB_ENV=$3
+IS_REPLICA=$4
+
+COMPRESS_THREADS=10
+PARALLEL_THREADS=10
+PARALLEL_UPLOADS=10
+BACKUP_DIR=$(date -I)
+FROM_EMAIL="mysql-backups@{{ mysql_app }}.internal"
+EMAIL_RECIPIENTS='dba-alerts@{{ mysql_app }}.internal'
+
+MYSQL_BASEDIR="{{ mysql_basedir_location }}/bin"
+XTRABACKUP_BASEDIR="{{ percona_xtrabackup_basedir_location }}/bin"
+HOSTNAME=$(hostname -s)
+SCRIPT=$0
+
+# S3 destination — parameterised at render time by Ansible
+S3_LOCATION="s3://{{ s3_backup_bucket }}/DB_Backups/$DB_ENV/$ENV/Physical/$HOSTNAME/$BACKUP_DIR"
+S3_PATH="s3://{{ s3_backup_bucket }}/DB_Backups/$DB_ENV/$ENV/Physical/$HOSTNAME/"
+
+# ── Logging helpers ───────────────────────────────────────────
+function log_messages() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$2]: $1"
+}
+
+function send_email() {
+  local message=$1 status=$2 subject=$3
+  if [[ $status == "ERROR" ]]; then
+    echo "$message. Check error log. Script: [$HOSTNAME:$SCRIPT]" \
+      | mailx -r "DatabaseBackup-Monitor" -s "$subject" "$EMAIL_RECIPIENTS"
+    exit 0
+  else
+    echo "$message. Script: [$HOSTNAME:$SCRIPT]" \
+      | mailx -r "DatabaseBackup-Monitor" -s "$subject" "$EMAIL_RECIPIENTS"
+  fi
+}
+
+# ── MySQL health check ────────────────────────────────────────
+function check_mysql() {
+  local mysql_alive
+  mysql_alive=$($MYSQL_BASEDIR/mysqladmin --defaults-file=$DEFAULTS_FILE --connect-timeout=30 ping)
+  if [[ $? -ne 0 ]]; then
+    log_messages "MySQL ping failed: $mysql_alive" "ERROR"
+    send_email "Cannot connect to MySQL on [$HOSTNAME]" "ERROR" "MySQL is Down — $ENV"
+    exit 0
+  fi
+
+  log_messages "MySQL status: $mysql_alive" "INFO"
+
+  if [[ $IS_REPLICA == 1 ]]; then
+    log_messages "Checking replication status" "INFO"
+    read -ra repinfo <<< "$($MYSQL_BASEDIR/mysql --defaults-file=$DEFAULTS_FILE \
+      --execute="SHOW REPLICA STATUS" -nE \
+      | grep -E 'Replica_IO_Running:|Replica_SQL_Running:|Seconds_Behind_Source:' \
+      | awk '{ gsub(/ /,""); print }')"
+    if [[ ${repinfo[0]} == "Replica_IO_Running:Yes" && ${repinfo[1]} == "Replica_SQL_Running:Yes" ]]; then
+      log_messages "Replication OK: ${repinfo[*]}" "INFO"
+    else
+      log_messages "Replication problem: ${repinfo[*]}" "ERROR"
+      send_email "Replication issue on [$HOSTNAME]: ${repinfo[*]}" "ERROR" "Replication Issue — $ENV"
+    fi
+  fi
+}
+
+# ── Physical backup (full or incremental) ────────────────────
+function physical_backup() {
+  local xtrabackup_info_cnt
+  xtrabackup_info_cnt=$(aws s3 ls "$S3_LOCATION/FULL/xtrabackup_info" 2>/dev/null | wc -l)
+
+  if [[ $xtrabackup_info_cnt -gt 0 ]]; then
+    # ── INCREMENTAL ──────────────────────────────────────────
+    log_messages "Full backup found. Running incremental." "INFO"
+    [[ -f "/tmp/$ENV-$BACKUP_DIR-incr.txt" ]] && { log_messages "Incremental already running." "WARN"; exit 0; }
+    touch "/tmp/$ENV-$BACKUP_DIR-incr.txt"
+    mkdir -p "/tmp/$ENV/LSN"
+    aws s3 cp "$S3_LOCATION/LSN/" "/tmp/$ENV/LSN/" --recursive
+
+    local incr_cnt
+    incr_cnt=$(aws s3 ls "$S3_LOCATION/INCR" 2>/dev/null | wc -l)
+    [[ -z $incr_cnt ]] && incr_cnt=0
+    local NUMBER=$(( incr_cnt + 1 ))
+
+    $XTRABACKUP_BASEDIR/xtrabackup \
+      --defaults-file=$DEFAULTS_FILE --backup --history \
+      --safe-slave-backup --slave-info \
+      --stream=xbstream \
+      --extra-lsndir="/tmp/$ENV/LSN" \
+      --target-dir="/tmp/$ENV/LSN" \
+      --incremental-basedir="/tmp/$ENV/LSN" \
+      --compress --compress-threads=$COMPRESS_THREADS \
+      --parallel=$PARALLEL_THREADS \
+    | $XTRABACKUP_BASEDIR/xbcloud put "$S3_LOCATION/INCR$NUMBER" \
+        --s3-access-key="$AWS_ACCESS_KEY_ID" \
+        --s3-secret-key="$AWS_SECRET_ACCESS_KEY" \
+        --parallel=$PARALLEL_UPLOADS inc_backup
+
+    if [[ $? -ne 0 ]]; then
+      log_messages "Incremental backup failed" "ERROR"
+      send_email "Incremental backup failed for $ENV" "ERROR" "Backup Alert | $ENV — Incremental Failed"
+    else
+      log_messages "Incremental backup INCR$NUMBER done → $S3_LOCATION/INCR$NUMBER" "INFO"
+      aws s3 cp "/tmp/$ENV/LSN" "$S3_LOCATION/LSN" --recursive
+      rm -f "/tmp/$ENV-$BACKUP_DIR-incr.txt"
+    fi
+
+  else
+    # ── FULL ────────────────────────────────────────────────
+    log_messages "No full backup found. Running full physical backup." "INFO"
+    [[ -f "/tmp/$ENV-$BACKUP_DIR-full.txt" ]] && { log_messages "Full backup already running." "WARN"; exit 0; }
+    touch "/tmp/$ENV-$BACKUP_DIR-full.txt"
+    mkdir -p "/tmp/$ENV/LSN"
+    rm -rf "/tmp/$ENV/LSN/*"
+
+    # Archive previous FULL to dated folder
+    aws s3 mv "$S3_LOCATION/FULL" "$S3_LOCATION/FULL-$(date '+%s')" --recursive 2>/dev/null || true
+
+    $XTRABACKUP_BASEDIR/xtrabackup \
+      --defaults-file=$DEFAULTS_FILE --backup --history \
+      --safe-slave-backup --slave-info \
+      --stream=xbstream \
+      --extra-lsndir="/tmp/$ENV/LSN" \
+      --target-dir="/tmp/$ENV" \
+      --compress --compress-threads=$COMPRESS_THREADS \
+      --parallel=$PARALLEL_THREADS \
+    | $XTRABACKUP_BASEDIR/xbcloud put "$S3_LOCATION/FULL" \
+        --s3-access-key="$AWS_ACCESS_KEY_ID" \
+        --s3-secret-key="$AWS_SECRET_ACCESS_KEY" \
+        --parallel=$PARALLEL_UPLOADS full_backup
+
+    if [[ $? -ne 0 ]]; then
+      log_messages "Full backup failed" "ERROR"
+      send_email "Full backup failed for $ENV" "ERROR" "Backup Alert | $ENV — Full Backup Failed"
+    else
+      log_messages "Full backup done → $S3_LOCATION/FULL" "INFO"
+      aws s3 cp "/tmp/$ENV/LSN" "$S3_LOCATION/LSN" --recursive
+      rm -f "/tmp/$ENV-$BACKUP_DIR-full.txt"
+    fi
+  fi
+}
+
+# ── Main ─────────────────────────────────────────────────────
+log_messages "Checking MySQL health" "INFO"
+check_mysql
+
+log_messages "Starting backup" "INFO"
+physical_backup

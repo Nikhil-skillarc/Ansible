@@ -1,0 +1,86 @@
+---
+# ============================================================
+# install_mysql.yml — Bootstrap MySQL data directory & service
+# ============================================================
+- name: "Install and initialise MySQL on all cluster nodes"
+  hosts: cluster
+  gather_facts: true
+  vars_files:
+    - "../../../inventory/vars.yml"
+
+  tasks:
+    - name: "Deploy my.cnf from template"
+      become: true
+      template:
+        src: "../templates/my.cnf.j2"
+        dest: "{{ mysql_conf_location }}/my.cnf"
+        owner: mysql
+        group: mysql
+        mode: "0640"
+
+    - name: "Initialise MySQL data directory"
+      become: true
+      become_user: mysql
+      shell: |
+        {{ mysql_basedir_location }}/bin/mysqld \
+          --defaults-file={{ mysql_conf_location }}/my.cnf \
+          --initialize-insecure \
+          --user=mysql
+      args:
+        creates: "{{ mysql_datadir_location }}/mysql"  # skip if already done
+
+    - name: "Deploy systemd service unit from template"
+      become: true
+      template:
+        src: "../templates/mysql-service.j2"
+        dest: "/etc/systemd/system/mysql-{{ mysql_app }}-{{ mysql_env }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload_systemd
+
+    - name: "Enable and start MySQL service"
+      become: true
+      systemd:
+        name: "mysql-{{ mysql_app }}-{{ mysql_env }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: "Wait for MySQL to be accepting connections"
+      become: true
+      shell: |
+        {{ mysql_basedir_location }}/bin/mysqladmin \
+          --defaults-file={{ mysql_conf_location }}/my.cnf ping
+      register: mysql_ping
+      retries: 12
+      delay: 5
+      until: mysql_ping.rc == 0
+
+    - name: "Set MySQL root password"
+      become: true
+      become_user: mysql
+      shell: |
+        {{ mysql_basedir_location }}/bin/mysql \
+          --defaults-file={{ mysql_conf_location }}/my.cnf \
+          -u root --connect-expired-password \
+          -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ mysql_super_password }}';"
+      no_log: true
+
+    - name: "Create cluster admin user on every node"
+      become: true
+      become_user: mysql
+      shell: |
+        {{ mysql_basedir_location }}/bin/mysql \
+          --defaults-file={{ mysql_conf_location }}/my.cnf \
+          -u root -p'{{ mysql_super_password }}' \
+          -e "CREATE USER IF NOT EXISTS '{{ mysql_cluster_admin_user }}'@'%' IDENTIFIED BY '{{ mysql_cluster_admin_user_password }}';
+              GRANT ALL PRIVILEGES ON *.* TO '{{ mysql_cluster_admin_user }}'@'%' WITH GRANT OPTION;
+              FLUSH PRIVILEGES;"
+      no_log: true
+
+  handlers:
+    - name: reload_systemd
+      become: true
+      systemd:
+        daemon_reload: true

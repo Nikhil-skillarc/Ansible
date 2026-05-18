@@ -1,0 +1,53 @@
+---
+# ============================================================
+# validate_setup.yml — Verify cluster health after deployment
+# ============================================================
+- name: "Validate MySQL InnoDB Cluster"
+  hosts: cluster
+  gather_facts: true
+  vars_files:
+    - "../inventory/vars.yml"
+
+  tasks:
+    - name: "Check MySQL process is running"
+      become: true
+      shell: "pgrep -x mysqld"
+      register: mysqld_running
+      failed_when: mysqld_running.rc != 0
+
+    - name: "Check MySQL port is listening"
+      become: true
+      shell: "ss -tlnp | grep :{{ mysql_port }}"
+      register: port_check
+      failed_when: port_check.rc != 0
+
+    - name: "Check Group Replication port"
+      become: true
+      shell: "ss -tlnp | grep :{{ mysql_groupreplication_port }}"
+      register: gr_port_check
+      failed_when: gr_port_check.rc != 0
+
+    - name: "Get cluster status from primary"
+      become: true
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh \
+          {{ mysql_cluster_admin_user }}@{{ hostvars[groups['primary'][0]]['ansible_default_ipv4']['address'] }}:{{ mysql_port }} \
+          --password={{ mysql_cluster_admin_user_password }} \
+          --js -e "print(JSON.stringify(dba.getCluster().status()))"
+      register: cluster_status
+      run_once: true
+      when: inventory_hostname in groups['primary']
+
+    - name: "Print cluster status"
+      debug:
+        var: cluster_status.stdout
+      run_once: true
+      when: inventory_hostname in groups['primary']
+
+    - name: "Fail if cluster status has errors"
+      fail:
+        msg: "Cluster status indicates a problem. Check output above."
+      when:
+        - inventory_hostname in groups['primary']
+        - "'ERROR' in cluster_status.stdout or 'MISSING' in cluster_status.stdout"
+      run_once: true

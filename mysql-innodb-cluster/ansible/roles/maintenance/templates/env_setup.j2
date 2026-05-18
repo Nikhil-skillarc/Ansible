@@ -1,0 +1,38 @@
+#!/bin/sh
+# =============================================================
+# env_setup.j2 — Environment bootstrap for maintenance scripts
+# Rendered by Ansible → /home/mysql/scripts/env/env_setup.sh
+# =============================================================
+
+export APP_NAME=$2
+export APP_HOME="/home/mysql/scripts"
+export APP_ENV=$APP_HOME/env
+export LOGDIR=$APP_HOME/logs
+export WORKDIR=$APP_HOME/jobs
+
+[ -d "$LOGDIR" ]  || mkdir -p "$LOGDIR"
+[ -d "$WORKDIR" ] || mkdir -p "$WORKDIR"
+[ -d "$LOGDIR" ]  || exit 1
+[ -d "$WORKDIR" ] || exit 1
+
+cd "$WORKDIR" || exit 1
+
+export JOBNAME=$(basename $1 .sh)
+export JOBSTARTTIME=$(/bin/date "+%Y-%m-%d-%H:%M:%S")
+export JOBSTARTTIMEUTC=$(/bin/date --utc "+%Y-%m-%d-%H:%M:%S-UTC")
+
+# Clean log files older than 30 days
+clean="find \"$LOGDIR\" -name '$JOBNAME.*' -type f -mtime +30 -exec rm -f '{}' \;"
+eval "$clean" || { echo "Failed to clean $clean" 1>&2 ; exit 1; }
+
+export STDOUT="$LOGDIR"/$JOBNAME.out.$JOBSTARTTIME
+export STDERR="$LOGDIR"/$JOBNAME.err.$JOBSTARTTIME
+
+echo "Redirecting STDOUT to $STDOUT"
+echo "Redirecting STDERR to $STDERR"
+
+exec >  "$STDOUT" || exit 1
+exec 2> "$STDERR" || exit 1
+
+echo "Job $JOBNAME started at $JOBSTARTTIME"
+echo "Job working directory $WORKDIR"

@@ -1,0 +1,97 @@
+# =============================================================
+# my.cnf.j2 — MySQL configuration template for InnoDB Cluster
+# Rendered by Ansible on each cluster node
+# =============================================================
+
+[mysqld_safe]
+log-error = {{ mysql_log_error }}
+
+[client]
+port     = {{ mysql_port }}
+socket   = {{ mysql_socket }}
+
+[mysqld]
+# ── Identity ─────────────────────────────────────────────────
+server-id         = {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'].split('.')[-1] | int }}
+port              = {{ mysql_port }}
+socket            = {{ mysql_socket }}
+pid-file          = {{ mysql_pid_file }}
+basedir           = {{ mysql_basedir_location }}
+datadir           = {{ mysql_datadir_location }}
+tmpdir            = {{ mysql_tempdir_location }}
+lower_case_table_names = {{ mysql_lower_case_table_names }}
+
+# ── Networking ────────────────────────────────────────────────
+bind-address          = 0.0.0.0
+max_connections       = {{ mysql_max_connections }}
+max_user_connections  = {{ mysql_max_user_connections }}
+max_allowed_packet    = {{ mysql_max_allowed_packet }}
+report_host           = {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}
+report_port           = {{ mysql_report_port }}
+
+# ── Logging ───────────────────────────────────────────────────
+log-error              = {{ mysql_log_error }}
+slow_query_log         = ON
+slow_query_log_file    = {{ mysql_slow_query_log_file }}
+long_query_time        = {{ mysql_long_query_time }}
+general_log            = OFF
+general_log_file       = {{ mysql_general_log_file }}
+
+# ── Binary Logging (required for GR) ─────────────────────────
+log_bin                         = {{ mysql_log_bin }}
+log_bin_index                   = {{ mysql_log_bin_index }}
+binlog_format                   = ROW
+binlog_row_image                = FULL
+binlog_rows_query_log_events    = ON
+expire_logs_days                = 7
+sync_binlog                     = 1
+
+# ── Relay Log ─────────────────────────────────────────────────
+relay-log                       = {{ mysql_relay_log }}
+relay_log_index                 = {{ mysql_relay_log_index }}
+relay_log_info_repository       = TABLE
+relay_log_recovery              = ON
+
+# ── GTID ─────────────────────────────────────────────────────
+gtid_mode                       = ON
+enforce_gtid_consistency        = ON
+
+# ── InnoDB ───────────────────────────────────────────────────
+innodb_data_home_dir            = {{ mysql_innodb_data_home_dir }}
+innodb_log_group_home_dir       = {{ mysql_innodb_log_group_home_dir }}
+innodb_buffer_pool_size         = {{ mysql_innodb_buffer_pool_size }}
+innodb_log_buffer_size          = {{ mysql_innodb_log_buffer_size }}
+innodb_log_file_size            = {{ mysql_innodb_log_file_size }}
+innodb_flush_log_at_trx_commit  = 1
+innodb_file_per_table           = ON
+innodb_flush_method             = O_DIRECT
+innodb_io_capacity              = 2000
+innodb_io_capacity_max          = 4000
+
+# ── Performance Schema ────────────────────────────────────────
+performance_schema                            = ON
+performance-schema-instrument                 = 'wait/lock/metadata/sql/mdl=ON'
+
+# ── SSL ───────────────────────────────────────────────────────
+ssl-ca    = {{ mysql_ssl_ca }}
+ssl-cert  = {{ mysql_ssl_cert }}
+ssl-key   = {{ mysql_ssl_key }}
+
+# ── Group Replication ─────────────────────────────────────────
+plugin_load_add                              = group_replication.so
+group_replication_group_name                 = {{ mysql_group_replication_group_name }}
+group_replication_start_on_boot             = OFF
+group_replication_local_address             = {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_groupreplication_port }}
+group_replication_group_seeds               = {% for host in groups['cluster'] %}{{ hostvars[host]['ansible_default_ipv4']['address'] }}:{{ mysql_groupreplication_port }}{% if not loop.last %},{% endif %}{% endfor %}
+
+group_replication_bootstrap_group           = OFF
+group_replication_single_primary_mode       = ON
+group_replication_enforce_update_everywhere_checks = OFF
+group_replication_recovery_use_ssl          = ON
+group_replication_ssl_mode                  = REQUIRED
+
+# ── Misc ─────────────────────────────────────────────────────
+sort_buffer_size       = {{ mysql_sort_buffer_size }}
+transaction_isolation  = READ-COMMITTED
+character-set-server   = utf8mb4
+collation-server       = utf8mb4_unicode_ci

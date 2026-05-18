@@ -1,0 +1,50 @@
+#!/bin/bash
+# =============================================================
+# mysqlreplication.sh.j2 — InnoDB Cluster member-state monitor
+# Deployed to: /home/mysql/scripts/jobs/mysqlreplication.sh
+# =============================================================
+
+. /home/mysql/scripts/env/env_setup.sh $0 "mysqlreplication"
+
+MYSQL="{{ mysql_basedir_location }}/bin/mysql"
+DEFAULTS_FILE="{{ mysql_conf_location }}/my.cnf"
+CLUSTER_USER="{{ mysql_cluster_admin_user }}"
+CLUSTER_PASS="{{ mysql_cluster_admin_user_password }}"
+HOSTNAME=$(hostname -s)
+EMAIL_RECIPIENTS='dba-alerts@{{ mysql_app }}.internal'
+
+function log_msg()    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$2]: $1"; }
+function send_alert() { echo "$1" | mailx -r "MySQL-GR-Monitor" -s "GR Alert | $HOSTNAME" "$EMAIL_RECIPIENTS"; }
+
+# ── Pull member state from performance_schema ─────────────────
+MEMBER_STATE=$($MYSQL --defaults-file=$DEFAULTS_FILE \
+  -u "$CLUSTER_USER" -p"$CLUSTER_PASS" \
+  --silent --skip-column-names 2>/dev/null \
+  -e "SELECT MEMBER_STATE FROM performance_schema.replication_group_members WHERE MEMBER_ID = @@server_uuid;")
+
+MEMBER_ROLE=$($MYSQL --defaults-file=$DEFAULTS_FILE \
+  -u "$CLUSTER_USER" -p"$CLUSTER_PASS" \
+  --silent --skip-column-names 2>/dev/null \
+  -e "SELECT MEMBER_ROLE FROM performance_schema.replication_group_members WHERE MEMBER_ID = @@server_uuid;")
+
+log_msg "Node state: ROLE=$MEMBER_ROLE STATE=$MEMBER_STATE" "INFO"
+
+if [[ "$MEMBER_STATE" != "ONLINE" ]]; then
+  log_msg "Node is NOT ONLINE. State=$MEMBER_STATE Role=$MEMBER_ROLE" "ERROR"
+  send_alert "InnoDB Cluster member on $HOSTNAME is not ONLINE. State=$MEMBER_STATE Role=$MEMBER_ROLE. Manual check required."
+else
+  log_msg "Node is healthy: ROLE=$MEMBER_ROLE STATE=$MEMBER_STATE" "INFO"
+fi
+
+# ── Count total members & expected quorum ────────────────────
+MEMBER_COUNT=$($MYSQL --defaults-file=$DEFAULTS_FILE \
+  -u "$CLUSTER_USER" -p"$CLUSTER_PASS" \
+  --silent --skip-column-names 2>/dev/null \
+  -e "SELECT COUNT(*) FROM performance_schema.replication_group_members WHERE MEMBER_STATE='ONLINE';")
+
+log_msg "Online cluster members: $MEMBER_COUNT / 3 expected" "INFO"
+
+if [[ "$MEMBER_COUNT" -lt 2 ]]; then
+  log_msg "Quorum at risk! Only $MEMBER_COUNT member(s) ONLINE." "ERROR"
+  send_alert "CRITICAL: Cluster on $HOSTNAME has only $MEMBER_COUNT ONLINE members — quorum at risk!"
+fi

@@ -1,0 +1,36 @@
+#!/bin/bash
+# =============================================================
+# innodbclusterchk.j2 — xinetd health-check for InnoDB Cluster
+# Deployed to: /usr/bin/innodbclustercheck
+# Called by xinetd on port 9200 — returns HTTP 200 if node is
+# a healthy primary, HTTP 503 otherwise.
+# =============================================================
+
+MYSQL="{{ mysql_basedir_location }}/bin/mysql"
+DEFAULTS_FILE="{{ mysql_conf_location }}/my.cnf"
+CLUSTER_USER="{{ mysql_cluster_admin_user }}"
+CLUSTER_PASS="{{ mysql_cluster_admin_user_password }}"
+
+# Check if this node is the primary
+IS_PRIMARY=$($MYSQL --defaults-file=$DEFAULTS_FILE \
+  -u "$CLUSTER_USER" -p"$CLUSTER_PASS" \
+  --silent --skip-column-names 2>/dev/null \
+  -e "SELECT IF(MEMBER_ROLE='PRIMARY' AND MEMBER_STATE='ONLINE', 'YES', 'NO')
+      FROM performance_schema.replication_group_members
+      WHERE MEMBER_ID = @@server_uuid;")
+
+if [[ "$IS_PRIMARY" == "YES" ]]; then
+  /bin/echo -en "HTTP/1.1 200 OK\r\n"
+  /bin/echo -en "Content-Type: text/plain\r\n"
+  /bin/echo -en "Connection: close\r\n"
+  /bin/echo -en "Content-Length: 21\r\n"
+  /bin/echo -en "\r\n"
+  /bin/echo -en "MySQL is PRIMARY (OK)\n"
+else
+  /bin/echo -en "HTTP/1.1 503 Service Unavailable\r\n"
+  /bin/echo -en "Content-Type: text/plain\r\n"
+  /bin/echo -en "Connection: close\r\n"
+  /bin/echo -en "Content-Length: 24\r\n"
+  /bin/echo -en "\r\n"
+  /bin/echo -en "MySQL is SECONDARY/DOWN\n"
+fi

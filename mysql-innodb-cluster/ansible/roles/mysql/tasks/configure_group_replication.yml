@@ -1,0 +1,37 @@
+---
+# ============================================================
+# configure_group_replication.yml
+# ============================================================
+- name: "Configure Group Replication prerequisites"
+  hosts: cluster
+  gather_facts: true
+  vars_files:
+    - "../../../inventory/vars.yml"
+
+  tasks:
+    - name: "Run dba.configureInstance on every node via MySQL Shell"
+      become: true
+      become_user: mysql
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh \
+          {{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }} \
+          --password={{ mysql_cluster_admin_user_password }} \
+          --js -e "dba.configureInstance('{{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }}', \
+            {password: '{{ mysql_cluster_admin_user_password }}', restart: true, interactive: false})"
+      register: configure_result
+      no_log: true
+
+    - name: "Print configureInstance output"
+      debug:
+        var: configure_result.stdout_lines
+
+    - name: "Wait for MySQL to restart after configureInstance"
+      become: true
+      become_user: mysql
+      shell: |
+        {{ mysql_basedir_location }}/bin/mysqladmin \
+          --defaults-file={{ mysql_conf_location }}/my.cnf ping
+      register: ping_after_restart
+      retries: 15
+      delay: 5
+      until: ping_after_restart.rc == 0

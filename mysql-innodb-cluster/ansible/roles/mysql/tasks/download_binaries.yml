@@ -1,0 +1,105 @@
+---
+# ============================================================
+# download_binaries.yml — Pull all tarballs from S3
+# ============================================================
+- name: "Download MySQL binaries from S3 on all nodes"
+  hosts: cluster
+  gather_facts: false
+  vars_files:
+    - "../../../inventory/vars.yml"
+
+  tasks:
+    - name: "Download Percona Server tarball from S3"
+      become: true
+      become_user: mysql
+      shell: |
+        aws s3 cp "{{ mysql_download_url }}" /tmp/percona-server.tar.gz
+      args:
+        creates: /tmp/percona-server.tar.gz
+
+    - name: "Extract Percona Server"
+      become: true
+      become_user: mysql
+      unarchive:
+        src: /tmp/percona-server.tar.gz
+        dest: "{{ mysql_basedir_location }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+
+    - name: "Download Percona XtraBackup from S3"
+      become: true
+      become_user: mysql
+      shell: |
+        aws s3 cp "{{ perona_xtrabackup_download_url }}" /tmp/xtrabackup.tar.gz
+      args:
+        creates: /tmp/xtrabackup.tar.gz
+
+    - name: "Extract Percona XtraBackup"
+      become: true
+      become_user: mysql
+      unarchive:
+        src: /tmp/xtrabackup.tar.gz
+        dest: "{{ percona_xtrabackup_basedir_location }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+
+    - name: "Download Percona Toolkit from S3"
+      become: true
+      become_user: mysql
+      shell: |
+        aws s3 cp "{{ percona_toolkit_download_url }}" /tmp/percona-toolkit.tar.gz
+      args:
+        creates: /tmp/percona-toolkit.tar.gz
+
+    - name: "Extract Percona Toolkit"
+      become: true
+      become_user: mysql
+      unarchive:
+        src: /tmp/percona-toolkit.tar.gz
+        dest: "{{ percona_toolkit_basedir_location }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+
+    - name: "Download MySQL Shell from S3"
+      become: true
+      become_user: mysql
+      shell: |
+        aws s3 cp "{{ mysql_shell_download_url }}" /tmp/mysql-shell.tar.gz
+      args:
+        creates: /tmp/mysql-shell.tar.gz
+
+    - name: "Extract MySQL Shell"
+      become: true
+      become_user: mysql
+      unarchive:
+        src: /tmp/mysql-shell.tar.gz
+        dest: "{{ mysql_shell_basedir_location }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+
+    - name: "Download ProxySQL from S3"
+      become: true
+      become_user: mysql
+      shell: |
+        aws s3 cp "{{ proxysql_download_url }}" /tmp/proxysql.tar.gz
+      args:
+        creates: /tmp/proxysql.tar.gz
+
+    - name: "Extract ProxySQL"
+      become: true
+      become_user: mysql
+      unarchive:
+        src: /tmp/proxysql.tar.gz
+        dest: "{{ proxysql_basedir_location }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+
+    - name: "Add mysql binaries to PATH in mysql user profile"
+      become: true
+      become_user: mysql
+      blockinfile:
+        path: /home/mysql/.bash_profile
+        marker: "# {mark} ANSIBLE MANAGED — mysql PATH"
+        block: |
+          export PATH={{ mysql_basedir_location }}/bin:{{ mysql_shell_basedir_location }}/bin:$PATH
+        create: true

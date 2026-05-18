@@ -1,0 +1,34 @@
+# =============================================================
+# mysql-service.j2 — systemd unit for MySQL
+# Deployed to: /etc/systemd/system/mysql-{{ mysql_app }}-{{ mysql_env }}.service
+# =============================================================
+
+[Unit]
+Description=MySQL InnoDB Cluster — {{ mysql_app }} / {{ mysql_env }}
+After=network.target
+
+[Service]
+Type=forking
+User=mysql
+Group=mysql
+
+ExecStart={{ mysql_basedir_location }}/bin/mysqld_safe \
+    --defaults-file={{ mysql_conf_location }}/my.cnf \
+    --user=mysql &
+
+ExecStop={{ mysql_basedir_location }}/bin/mysqladmin \
+    --defaults-file={{ mysql_conf_location }}/my.cnf \
+    shutdown
+
+PIDFile={{ mysql_pid_file }}
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+Restart=on-failure
+RestartSec=5
+
+LimitNOFILE=65535
+LimitNPROC=65535
+
+[Install]
+WantedBy=multi-user.target

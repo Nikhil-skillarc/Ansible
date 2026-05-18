@@ -1,0 +1,47 @@
+#!/bin/bash
+# =============================================================
+# mysqldmonitor.j2 — Monitor MySQL daemon & restart if down
+# Deployed to: /home/mysql/scripts/jobs/mysqldmonitor.sh
+# Runs via cron every minute
+# =============================================================
+
+. /home/mysql/scripts/env/env_setup.sh $0 "mysqldmonitor"
+
+MYSQL_BASEDIR="{{ mysql_basedir_location }}/bin"
+DEFAULTS_FILE="{{ mysql_conf_location }}/my.cnf"
+SERVICE_NAME="mysql-{{ mysql_app }}-{{ mysql_env }}"
+HOSTNAME=$(hostname -s)
+EMAIL_RECIPIENTS='dba-alerts@{{ mysql_app }}.internal'
+
+function log_msg() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$2]: $1"; }
+
+function send_alert() {
+  echo "$1" | mailx -r "MySQL-Monitor" -s "MySQL Alert | $HOSTNAME | $SERVICE_NAME" "$EMAIL_RECIPIENTS"
+}
+
+# Check if mysqld is running
+MYSQL_PID=$(pgrep -x mysqld)
+
+if [[ -z "$MYSQL_PID" ]]; then
+  log_msg "mysqld is NOT running on $HOSTNAME. Attempting restart." "ERROR"
+  send_alert "mysqld was found stopped on $HOSTNAME. Attempting systemd restart."
+  systemctl restart "$SERVICE_NAME"
+  sleep 10
+  MYSQL_PID=$(pgrep -x mysqld)
+  if [[ -z "$MYSQL_PID" ]]; then
+    log_msg "mysqld failed to restart on $HOSTNAME." "ERROR"
+    send_alert "mysqld FAILED to restart on $HOSTNAME. Manual intervention required."
+  else
+    log_msg "mysqld restarted successfully on $HOSTNAME. PID=$MYSQL_PID" "INFO"
+    send_alert "mysqld was restarted successfully on $HOSTNAME (PID=$MYSQL_PID)."
+  fi
+else
+  # Verify it is accepting connections
+  PING=$($MYSQL_BASEDIR/mysqladmin --defaults-file=$DEFAULTS_FILE --connect-timeout=10 ping 2>&1)
+  if [[ $? -ne 0 ]]; then
+    log_msg "mysqld running (PID=$MYSQL_PID) but not accepting connections: $PING" "ERROR"
+    send_alert "mysqld on $HOSTNAME is up but not accepting connections: $PING"
+  else
+    log_msg "mysqld is healthy (PID=$MYSQL_PID)" "INFO"
+  fi
+fi

@@ -1,0 +1,23 @@
+---
+# ============================================================
+# main.yml — Entry-point playbook for MySQL InnoDB Cluster
+# ============================================================
+- name: "Install OS Dependencies"
+  import_playbook: "../roles/mysql/tasks/install_dependencies.yml"
+  tags: ["install_dependencies"]
+
+- name: "Download MySQL Binaries from S3"
+  import_playbook: "../roles/mysql/tasks/download_binaries.yml"
+  tags: ["download_binaries"]
+
+- name: "Install and Bootstrap MySQL"
+  import_playbook: "../roles/mysql/tasks/install_mysql.yml"
+  tags: ["install_mysql"]
+
+- name: "Configure Group Replication"
+  import_playbook: "../roles/mysql/tasks/configure_group_replication.yml"
+  tags: ["setup_group_replication"]
+
+- name: "Configure InnoDB Cluster"
+  import_playbook: "../roles/mysql/tasks/configure_cluster.yml"
+  tags: ["configure_cluster"]

@@ -1,0 +1,83 @@
+---
+# ============================================================
+# configure_cluster.yml — Bootstrap & add nodes to InnoDB cluster
+# ============================================================
+- name: "Configure MySQL InnoDB Cluster"
+  hosts: cluster
+  gather_facts: true
+  vars_files:
+    - "../../../inventory/vars.yml"
+
+  tasks:
+    - name: "Bootstrap the InnoDB Cluster on the Primary node"
+      become: true
+      become_user: mysql
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh \
+          {{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }} \
+          --password={{ mysql_cluster_admin_user_password }} \
+          --js -e "dba.createCluster('{{ mysql_app }}_{{ mysql_env }}_{{ mysql_dc }}_cluster', \
+            {gtidSetIsComplete: true, \
+             groupName: '{{ mysql_group_replication_group_name }}', \
+             localAddress: '{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_groupreplication_port }}'})"
+      register: create_cluster_result
+      no_log: true
+      when: "hostvars[inventory_hostname]['ansible_default_ipv4']['address'] in groups['primary']"
+      run_once: true
+
+    - name: "Print createCluster output"
+      debug:
+        var: create_cluster_result.stdout_lines
+      when: "hostvars[inventory_hostname]['ansible_default_ipv4']['address'] in groups['primary']"
+      run_once: true
+
+    - name: "Check cluster status on Primary before adding secondaries"
+      become: true
+      become_user: mysql
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh \
+          {{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }} \
+          --password={{ mysql_cluster_admin_user_password }} \
+          --js -e "print(dba.getCluster().status())"
+      register: primary_cluster_status
+      failed_when: false
+      no_log: true
+      when: "hostvars[inventory_hostname]['ansible_default_ipv4']['address'] in groups['primary']"
+
+    - name: "Fail if primary was not bootstrapped"
+      fail:
+        msg: "Primary node did not bootstrap correctly. Exiting."
+      when:
+        - "hostvars[groups['primary'][0]].primary_cluster_status is defined"
+        - "hostvars[groups['primary'][0]].primary_cluster_status.rc != 0"
+      run_once: true
+
+    - name: "Add Secondary nodes to the InnoDB Cluster"
+      become: true
+      become_user: mysql
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh \
+          {{ mysql_cluster_admin_user }}@{{ groups['primary'][0] }}:{{ mysql_port }} \
+          --password={{ mysql_cluster_admin_user_password }} \
+          --js -e "var cluster = dba.getCluster('{{ mysql_app }}_{{ mysql_env }}_{{ mysql_dc }}_cluster'); \
+                   cluster.addInstance('{{ mysql_cluster_admin_user }}@{{ item }}:{{ mysql_port }}', \
+                     {password: '{{ mysql_cluster_admin_user_password }}', recoveryMethod: 'clone'});"
+      loop: "{{ groups['secondary'] }}"
+      run_once: true
+      no_log: true
+      when: hostvars[groups['primary'][0]].primary_cluster_status.rc == 0
+
+    - name: "Final cluster status check"
+      become: true
+      become_user: mysql
+      shell: |
+        {{ mysql_shell_basedir_location }}/bin/mysqlsh \
+          {{ mysql_cluster_admin_user }}@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ mysql_port }} \
+          --password={{ mysql_cluster_admin_user_password }} \
+          --js -e "print(dba.getCluster().status())"
+      register: final_cluster_status
+      no_log: true
+
+    - name: "Print final cluster status"
+      debug:
+        var: final_cluster_status.stdout_lines
